@@ -1,0 +1,6 @@
+# your own scans stay on your machine
+/test-scans/
+_frameline_previews/
+results.csv
+
+.DS_Store
