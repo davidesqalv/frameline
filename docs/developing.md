@@ -108,3 +108,5 @@ saw:
 ## README images
 
 `tools/hero.swift` renders `docs/hero.jpg` and `docs/budapest.jpg` from a scan and its detected edges, with the crop the plug-in would apply by default. Usage is in the file header.
+
+`tools/stages.sh <scan.jpg>` renders the step-by-step pictures in the README's "How it works" (`docs/stages/`). It compiles `tools/stages.swift` together with the detector's own code (`detect/main.swift` without its command-line part), so the pictures always show what the detector really does. Re-run it after changing the detector if the README's numbers might have moved.
