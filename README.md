@@ -111,86 +111,42 @@ tells Frameline the frame's shape, and the crop keeps that shape exactly.
 
 ## How it works
 
-Every camera scan has the same layers, from the outside in: the holder (if
-it shows), the film's border, then the picture. The border is unexposed
-film, so it's one flat tone, the same on all four sides. The holder usually
-shows on fewer sides.
+![Pass 1: the tulip scan as a gray copy, then its edge pixels, then flat runs walking in from each side, which find the outline of the film strip](docs/pipeline-1.jpg)
 
-Here's the tulip scan from the top of this page going through it, step by
-step. The pictures come from Frameline's own code run on that scan
-(`tools/stages.sh` draws them).
+A camera scan is a set of nested flat regions: the holder or light table,
+then the film's rebate, then the picture. The rebate is unexposed film, so
+it's the flattest thing in the scan and the same tone on every side.
+Frameline works on a luma copy at most 900 px across and marks the steepest
+5% of the gradient as edge pixels. Then it walks inward from each side, one
+line at a time, and groups lines into *runs*: consecutive lines where 80% of
+the pixels sit within 14 levels of the line's median. The tone that runs on
+the most sides is the border. Its run ends at the first line where at least
+35% of the pixels are edges, and the edge snaps to the innermost strong line
+nearby.
 
-### 1. A small gray copy
+![Pass 2: a check for a one-tone film border inside the strip's outline, the frame edges found inside it, and the final 3:2 frame](docs/pipeline-2.jpg)
 
-![The tulip scan in black and white: white light table at the sides, a black film strip with sprocket holes, and the tulips in the middle](docs/stages/1-gray.jpg)
+A whole strip on a light table has two rings, so the first pass only finds
+the strip's outline. Frameline then samples a 4-line band just inside it.
+If that band is one tone on every side, far from the tone outside, and the
+picture sits on one side of it (unexposed film is the extreme tone on its
+own strip), Frameline peels the outline away and runs again inside. Where
+the picture next to the rebate is as dark as the rebate, like the foliage
+along the top here, there's no edge line to stop at. A faint-step test
+measures the rebate's own noise (under half a level on this scan) and takes
+the first sustained shift of 4σ or 2 levels, whichever is larger: the tone
+goes 0, 1, 6, 12 and the edge lands on row 73.
 
-Frameline drops the colour and works on a gray copy no more than 900 pixels
-across, which is plenty to find an edge and keeps a whole roll quick. Gray
-runs from 0 (black) to 255 (white). Here the light table reads 249 and the
-film's black border reads 0.
-
-### 2. Where the brightness changes
-
-![The same scan as an edge map: tulip outlines and the film's outer edge in orange, flat areas dark](docs/stages/2-edges.jpg)
-
-For each pixel, Frameline measures how fast the brightness changes. The
-strongest 5% (orange) count as edge pixels. Tulip outlines and the film's
-outer edge light up, while flat areas like the light table and the black
-border stay dark.
-
-### 3. Walking in from each side
-
-![The scan with orange bands over the light table on the left, right and bottom, short blue bands where the black film begins, and white dashed lines where the light table ends](docs/stages/3-pass1.jpg)
-
-From each edge of the scan, Frameline reads inward one line at a time. It
-looks for *runs*: lines in a row that are all one flat tone, like a holder,
-a light table or film border. The tone found on the most sides counts as
-the border. Here that's the light table (orange) on the left, right and
-bottom. The top has none, because the scan cuts through the edge print.
-
-On the left, 103 columns read 249. Then the tone drops to almost 0 within
-four columns, right where the edge pixels pile up, at column 105. The white
-dashed lines mark where the runs end. That's the outline of the film strip,
-not the frame yet.
-
-### 4. Is there film inside?
-
-![The scan dimmed, a dashed outline around the film strip, and thin orange lines just inside it](docs/stages/4-ring.jpg)
-
-Just inside that outline, Frameline checks a thin ring (orange). It's all
-one tone, 0, nothing like the 249 outside, and the picture inside is
-lighter than it. That's what film border looks like, so this is a whole
-strip on a light table. Frameline looks again, inside the outline.
-
-### 5. The second pass finds the frame
-
-![Inside the strip: orange bands over the black border on all four sides, a solid white line at the picture's left edge, and pink dashed lines at its top, right and bottom](docs/stages/5-pass2.jpg)
-
-The same walk again, now looking for the black film border (orange). On the
-left it ends at a clear edge (solid white line). On the other three sides
-the picture next to the border is dark too, foliage and ground, so there's
-no clear edge to stop at.
-
-There, Frameline measures how much the border's own tone wobbles (less than
-half a level) and finds the first place the tone moves by 2 levels or more
-and stays moved (pink dashed lines). At the top that's row 73, where the
-tone goes 0, 1, 6, 12. You'd never see that by eye, but it stands out
-against film border that doesn't change at all.
-
-### 6. Shape check, then the crop
-
-![The scan with everything outside the frame darkened and a white rectangle around the tulips](docs/stages/6-frame.jpg)
-
-The four edges make a rectangle 602 × 400 pixels. A 35mm frame is exactly
-3:2, so Frameline trims one pixel off each side to get 600 × 400, keeping
-the picture centred. The sides agree there's no tilt, so nothing needs
-straightening. The plug-in then adds the border you picked (a thin line by
-default) and applies an ordinary Lightroom crop.
-
-On a tilted scan, the tilt comes from the straightest lines along the
-frame's edges. When the evidence is too thin, Frameline skips the photo
-instead of guessing. The full write-up, including the odd cases the test
-scans taught it, is in [docs/how-it-works.md](docs/how-it-works.md).
+Last comes geometry. A 35mm frame is exactly 3:2, so a side that couldn't
+be seen is placed from the other three, and a small mismatch is split evenly
+to keep the picture centred (602 × 400 → 600 × 400 here). Tilt comes from
+straight-line fits along each edge, with the long edges weighted double
+because a cupped strip skews the short ones. Every edge records how it was
+found, so a doubtful photo is cropped and flagged for a look rather than
+guessed at silently. It's plain Swift on pixel arrays, with no
+machine-learning model and no dependencies. The full write-up, including
+the odd cases real scans taught it, is in
+[docs/how-it-works.md](docs/how-it-works.md).
 
 ## Limits
 
@@ -225,7 +181,7 @@ frameline/
 ├── detect/main.swift       the frame detector: Swift and ImageIO, no dependencies
 ├── tools/synth.swift       makes synthetic test scans with known answers
 ├── tools/hero.swift        renders the before/after images in this README
-├── tools/stages.sh         renders the step-by-step pictures in this README
+├── tools/stages.sh         renders the pipeline pictures in this README
 ├── docs/                   how it works, developing, README images
 ├── build.sh                compiles the detector into the plug-in
 ├── bump.sh                 bumps the plug-in version shown in Lightroom

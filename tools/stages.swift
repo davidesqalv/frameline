@@ -1,7 +1,10 @@
-// The step-by-step pictures in the README (docs/stages/): one scan going
-// through the detector, drawn with the detector's own functions. Built by
-// tools/stages.sh, which compiles this file together with detect/main.swift
-// minus its command-line part. Writes 1-gray.png ... 6-frame.png to <outdir>.
+// The pipeline pictures in the README: one scan going through the detector,
+// drawn with the detector's own functions. Built by tools/stages.sh, which
+// compiles this file together with detect/main.swift minus its command-line
+// part. Writes each stage (1-gray.png ... 6-frame.png) and the two strips the
+// README shows (pipeline-1.png: stages 1-3, pipeline-2.png: stages 4-6) to
+// <outdir>.
+import AppKit
 import Foundation
 import CoreGraphics
 import ImageIO
@@ -44,10 +47,15 @@ func canvas() -> CGContext {
     c.translateBy(x: 0, y: CGFloat(H)); c.scaleBy(x: 1, y: -1)   // y down, like the detector
     return c
 }
-func save(_ c: CGContext, _ name: String) {
-    let img = c.makeImage()!
+var shots: [String: CGImage] = [:]
+func write(_ img: CGImage, _ name: String) {
     let d = CGImageDestinationCreateWithURL(outDir.appendingPathComponent(name) as CFURL, UTType.png.identifier as CFString, 1, nil)!
     CGImageDestinationAddImage(d, img, nil); CGImageDestinationFinalize(d)
+}
+func save(_ c: CGContext, _ name: String) {
+    let img = c.makeImage()!
+    shots[name] = img
+    write(img, name)
 }
 func grayImage(_ px: [Float], _ w: Int, _ h: Int, map: (Float) -> Float = { $0 }) -> CGImage {
     var b = [UInt8](repeating: 0, count: w * h)
@@ -168,3 +176,61 @@ do {
 }
 
 print("pass 1 border tone \(Int(outer.dbg.level)), outline \(ol); pass 2 border tone \(Int(inner.dbg.level)), edges \(inner.sides.map { "\($0.edge.map(String.init) ?? "-") \($0.method)" }); frame \(frame), aspect \(fdbg.aspect)")
+
+// ---------- the two strips the README shows: three stages each, with arrows ----------
+func strip(_ heading: String, _ items: [(no: Int, shot: String, title: String, note: String)], _ name: String) {
+    let SW = 2560.0, SH = 860.0
+    let tw = 700.0, th = tw * Double(H) / Double(W), gap = 150.0
+    let x0 = (SW - (3 * tw + 2 * gap)) / 2
+    let ty = SH - 170 - th                          // thumbnails' bottom edge (y up)
+    let c = CGContext(data: nil, width: Int(SW), height: Int(SH), bitsPerComponent: 8, bytesPerRow: 0, space: cs,
+                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    c.interpolationQuality = .high
+    NSGraphicsContext.current = NSGraphicsContext(cgContext: c, flipped: false)
+    let bg = rgb(0x151311), ink = rgb(0xEEE9E1), muted = rgb(0x8E877D), accent = rgb(0xF2A33A)
+    c.setFillColor(bg); c.fill(CGRect(x: 0, y: 0, width: SW, height: SH))
+    func text(_ s: String, _ size: CGFloat, _ weight: NSFont.Weight, _ color: CGColor, kern: CGFloat = 0) -> NSAttributedString {
+        NSAttributedString(string: s, attributes: [.font: NSFont.systemFont(ofSize: size, weight: weight),
+                                                   .foregroundColor: NSColor(cgColor: color)!, .kern: kern])
+    }
+    text(heading.uppercased(), 34, .semibold, muted, kern: 4).draw(at: CGPoint(x: x0, y: SH - 100))
+    for (i, it) in items.enumerated() {
+        let x = x0 + Double(i) * (tw + gap)
+        let r = CGRect(x: x, y: ty, width: tw, height: th)
+        c.saveGState()
+        c.setShadow(offset: CGSize(width: 0, height: -10), blur: 30, color: rgb(0x000000, 0.6))
+        c.setFillColor(rgb(0x000000)); c.fill(r)
+        c.restoreGState()
+        c.draw(shots[it.shot]!, in: r)
+        // number badge on the top-left corner
+        let bc = CGPoint(x: x, y: ty + th), br = 38.0
+        c.setFillColor(bg); c.fillEllipse(in: CGRect(x: bc.x - br, y: bc.y - br, width: 2 * br, height: 2 * br))
+        c.setStrokeColor(accent); c.setLineWidth(4)
+        c.strokeEllipse(in: CGRect(x: bc.x - br, y: bc.y - br, width: 2 * br, height: 2 * br))
+        let n = text("\(it.no)", 40, .bold, ink)
+        n.draw(at: CGPoint(x: bc.x - n.size().width / 2, y: bc.y - n.size().height / 2))
+        text(it.title, 48, .semibold, ink).draw(at: CGPoint(x: x, y: ty - 78))
+        text(it.note, 38, .regular, muted).draw(at: CGPoint(x: x, y: ty - 132))
+        if i < items.count - 1 {
+            let ay = ty + th / 2, a0 = x + tw + 38, a1 = x + tw + gap - 38
+            c.setStrokeColor(muted); c.setLineWidth(5); c.setLineCap(.round); c.setLineJoin(.round)
+            c.move(to: CGPoint(x: a0, y: ay)); c.addLine(to: CGPoint(x: a1, y: ay))
+            c.move(to: CGPoint(x: a1 - 22, y: ay + 22)); c.addLine(to: CGPoint(x: a1, y: ay)); c.addLine(to: CGPoint(x: a1 - 22, y: ay - 22))
+            c.strokePath()
+        }
+    }
+    NSGraphicsContext.current = nil
+    write(c.makeImage()!, name)
+}
+let fw = Int(((1 - frame.l - frame.r) * Double(W)).rounded()), fh = Int(((1 - frame.t - frame.b) * Double(H)).rounded())
+let mw = W - (inner.sides[0].edge ?? 0) - (inner.sides[2].edge ?? 0), mh = H - (inner.sides[1].edge ?? 0) - (inner.sides[3].edge ?? 0)
+strip("Pass 1 · find the film strip", [
+    (1, "1-gray.png", "Gray copy", "luma, at most 900 px"),
+    (2, "2-edges.png", "Edge pixels", "steepest 5% of the gradient"),
+    (3, "3-pass1.png", "Flat runs from each side", "light table ends: strip outline"),
+], "pipeline-1.png")
+strip("Pass 2 · find the frame inside it", [
+    (4, "4-ring.png", "Film inside?", "one-tone ring, picture lighter"),
+    (5, "5-pass2.png", "Frame edges", "edge line, or a 2-level step"),
+    (6, "6-frame.png", "3:2 frame", "\(mw) × \(mh) → \(fw) × \(fh) px"),
+], "pipeline-2.png")

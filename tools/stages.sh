@@ -1,16 +1,17 @@
 #!/bin/sh
-# Renders the step-by-step pictures in the README from one scan, using the
-# detector's own code: detect/main.swift without its command-line part,
-# compiled together with tools/stages.swift.
+# Renders the pipeline pictures in the README (docs/pipeline-1.jpg and
+# docs/pipeline-2.jpg) from one scan, using the detector's own code:
+# detect/main.swift without its command-line part, compiled together with
+# tools/stages.swift.
 #
-#   tools/stages.sh <scan.jpg> [outdir]     (outdir defaults to docs/stages)
+#   tools/stages.sh <scan.jpg> [outdir]     (outdir defaults to docs)
 #
 # The README's pictures come from the tulip scan DSC09488 (the author's own,
 # not in the repository).
 set -e
 cd "$(dirname "$0")/.."
 scan="$1"
-out="${2:-docs/stages}"
+out="${2:-docs}"
 if [ ! -f "$scan" ]; then
     echo "usage: tools/stages.sh <scan.jpg> [outdir]" >&2
     exit 1
@@ -22,8 +23,8 @@ cp tools/stages.swift "$build/main.swift"
 swiftc -O "$build/detector.swift" "$build/main.swift" -o "$build/stages"
 "$build/stages" "$scan" "$build"
 mkdir -p "$out"
-for f in "$build"/*.png; do
-    sips -s format jpeg -s formatOptions 88 "$f" --out "$out/$(basename "${f%.png}").jpg" >/dev/null
+for n in pipeline-1 pipeline-2; do
+    sips -s format jpeg -s formatOptions 86 "$build/$n.png" --out "$out/$n.jpg" >/dev/null
 done
 rm -r "$build"
-echo "wrote $out/1-gray.jpg ... 6-frame.jpg"
+echo "wrote $out/pipeline-1.jpg and $out/pipeline-2.jpg"
