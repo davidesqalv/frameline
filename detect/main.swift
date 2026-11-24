@@ -133,6 +133,7 @@ struct SideDebug {
     var toneLines: [Bool] = []      // per line from the rim (to the search limit): mostly border tone, i.e. film
     var holeLines: [Bool] = []      // per line from the rim (to the search limit): crosses a row of sprocket holes
     var cleanLines: [Bool] = []     // per line from the rim (to the search limit): uniform border tone, clean rebate
+    var holeBacked = false          // the edge sits just past a row of sprocket holes: where a frame edge belongs
     var busyLines: [Bool] = []      // per line from the rim (to the search limit): not uniform (printing, holes, an edge)
     var holes: Double = 0           // how far past the edge the sprocket holes reach, plus a little clean rebate beyond, fraction; 0 = none
 }
@@ -599,6 +600,17 @@ func chooseRun(_ runs: [Run], s: SideView, p: Params, level: Float) -> Run? {
            abs(r.level - h.level) > p.levelTol {
             cands.removeAll { $0.start < r.start }
             if !cands.contains(where: { $0.start == r.start }) { cands.insert(r, at: 0) }
+        }
+    }
+    // No border run near the rim, but one of the border's tone that begins
+    // right after a row of sprocket holes (most of the lines before it cross
+    // holes): the scan cuts into the film at the rim and the rebate between
+    // the holes and the frame is all there is. It may start past the usual limit.
+    if cands.isEmpty {
+        for r in runs where r.start > startLimit && r.start <= Int(Double(s.n) * p.maxBorder)
+            && abs(r.level - level) <= p.levelTol {
+            let holeLines = (0..<r.start).filter { sprocketLine(s, $0, level: level, p: p) }.count
+            if Double(holeLines) >= p.sprocketRowShare * Double(r.start) { cands = [r]; break }
         }
     }
     guard var pick = cands.first else { return nil }
@@ -1109,6 +1121,8 @@ func analyzeGray(_ g: Gray, params p0: Params, dump: Bool = false) -> Analysis {
         if inRow || e <= hin || Double(e - hin) > params.holeFrameGapMaxMm * pxPerMm {
             res[k].method = "soft"
             dbg.holeNote += "\(["L", "T", "R", "B"][k]) edge \(e) not just past its holes (\(hin)); "
+        } else {
+            res[k].holeBacked = true
         }
     }
 
@@ -1191,7 +1205,8 @@ func finish(_ a: Analysis, params: Params, prior: [Double?]) -> (Detection?, Deb
         // film outline the sprocket sides are wide, so the limit is larger
         // and counted from the outline
         let plausible = dbg.peeled ? params.peelPlausibleBorder : params.plausibleBorder
-        for i in 0..<4 where res[i].method == "soft" {
+        // (not one that sits just past its sprocket holes: that is a frame edge)
+        for i in 0..<4 where res[i].method == "soft" && !res[i].holeBacked {
             let base = dbg.peeled && dbg.outline.count == 4 ? dbg.outline[i] : 0
             if Double((res[i].edge ?? 0) - base) > nOf(i) * plausible {
                 res[i].method = "too wide"
@@ -1329,7 +1344,10 @@ func finish(_ a: Analysis, params: Params, prior: [Double?]) -> (Detection?, Deb
             // a seen edge with a strong edge line is an anchor; a seen edge
             // whose edge line is weak (picture of the border's tone along
             // it, faint sprocket holes read as border) yields to it
+            // (an edge just past its sprocket holes is where a frame edge
+            // belongs, however faint its line: the other side yields)
             let trust = res.map { s -> Double in
+                if s.holeBacked, ["run", "partial", "subtle", "agreed", "soft"].contains(s.method) { return 4 }
                 switch s.method {
                 case "run", "partial": return s.snap >= params.strongSnap ? 3.5 : 3
                 case "subtle", "agreed": return 2

@@ -143,9 +143,18 @@ wrong; the same scans unconverted were right. What changed:
   the rebate's tone or stopped on a hole: it becomes soft, and the frame's
   shape places it.
 
-The converted roll now has 34 of 38 frames within 1% of the unconverted
-result; of the four left, three are flagged or near (1-2%), and one
-(DSC02798, top edge stopped on a faint step inside the rebate) is not.
+- **The strip after the holes counts on its own.** With no border run near
+  the rim, a run of the border's tone that begins right after a row of
+  holes (60% of the lines before it cross holes) is taken even past the
+  usual start limit, and an edge that sits just past its holes outranks
+  every other kind when the frame's shape decides which side moves; a soft
+  one is not dropped for being deep. DSC02798's holes are invisible on one
+  side (black on black) and its edge there stopped on the holes' outline;
+  the other side's edge, right behind a plain row of holes, was being
+  thrown away, and now anchors the frame.
+
+The converted roll now has 35 of 38 frames within 1% of the unconverted
+result; the three left are flagged or within 1-2%.
 Cropping before converting, as Negative Lab Pro asks anyway, avoids all of
 this.
 

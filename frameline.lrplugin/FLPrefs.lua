@@ -5,7 +5,7 @@ local LrPrefs = import 'LrPrefs'
 
 local M = {}
 
-M.version = '0.3.28'   -- kept in step with Info.lua by bump.sh
+M.version = '0.3.29'   -- kept in step with Info.lua by bump.sh
 
 -- border: percent of the image around the picture; positive shows film
 -- border, negative cuts into the picture. Chosen by name (borderSteps),
