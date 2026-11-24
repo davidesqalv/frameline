@@ -46,7 +46,9 @@ Crop edge
                  edge printing, out to where the film or the scan ends.
                  Scans that show their holes get this on their own
                  (Settings: Show the sprocket holes when a scan has them);
-                 choosing it here gives the rest a thin border.
+                 crop before converting in Negative Lab Pro, which hides
+                 the holes. Choosing it here gives scans without sprockets
+                 a thin border.
 
   Opposite sides get the same border, and a side never shows more border
   than the scan has there.

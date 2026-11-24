@@ -340,7 +340,7 @@ LrTasks.startAsyncTask(function()
                 local border = prefs.border
                 local crop, note, info, kind
                 -- a scan that shows its sprocket holes gets them, whatever the crop edge
-                if prefs.sprockets and Prefs.bordersFor(border) == 0 and Frame.showsHoles(c) then
+                if prefs.sprockets and Prefs.bordersFor(border) == 0 and Frame.sprocketScan(c, dims, orient) then
                     local c2, n2, i2, k2 = Frame.cropFor(c, Prefs.SPROCKETS, prefs.straighten, dims, c.aspect, orient)
                     if k2 == 'holes' or k2 == 'cut' then
                         border, crop, note, info, kind = Prefs.SPROCKETS, c2, n2, i2, k2

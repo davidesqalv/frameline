@@ -92,6 +92,7 @@ struct Params {
     var angleMinBorder = 0.010      // a side with less border than this (fraction) fits the tilt badly
     var sprocketUniMax: Float = 0.7 // a line through the sprocket holes is at most this uniform
     var sprocketMinHoles = 4        // a line through the sprocket row crosses at least this many whole holes
+    var holderMargin = 2            // lines past a holder run also left off the lines across it (its soft edge)
     var sprocketPitchTol = 0.25     // ...evenly spaced: every hole-to-hole step within this fraction of the median step
     var sprocketRowShare = 0.6      // a gap is a sprocket row when at least this share of its lines are
     var holeGapMaxMm = 2.5          // a frame's sprocket row begins within this many mm of its edge (nominally ~0.7)
@@ -258,6 +259,13 @@ struct SideView {
     let raw: [Float]                // edge-pixel fraction per line
     let lum: (Int, Int) -> Float    // (line, position) -> luminance
     let edge: (Int, Int) -> Bool    // (line, position) -> is an edge pixel
+}
+
+/// The same side with each line starting `a` pixels in and ending `b` short:
+/// lines measured without the holder at their ends.
+func trimmed(_ s: SideView, start a: Int, end b: Int) -> SideView {
+    SideView(n: s.n, len: s.len - a - b, raw: s.raw,
+             lum: { i, j in s.lum(i, j + a) }, edge: { i, j in s.edge(i, j + a) })
 }
 
 func makeSides(_ g: Gray, edges: [Bool], colR: [Float], rowR: [Float]) -> [SideView] {
@@ -847,7 +855,7 @@ func analyzeGray(_ g: Gray, params: Params, dump: Bool = false) -> Analysis {
     dbg.threshold = thr
     let edges = mag.map { $0 > thr }
     let (colR, rowR) = supports(edges: edges, w: w, h: h, smear: 0)
-    let sides = makeSides(g, edges: edges, colR: colR, rowR: rowR)
+    var sides = makeSides(g, edges: edges, colR: colR, rowR: rowR)
 
     if dump {
         for (name, s) in zip(["L", "T", "R", "B"], sides) {
@@ -862,8 +870,39 @@ func analyzeGray(_ g: Gray, params: Params, dump: Bool = false) -> Analysis {
     }
 
     // 1. Uniform runs per side, then the border tone across sides.
-    let runs = sides.map { uniformRuns($0, p: params) }
-    let level = borderLevel(runs: runs, sides: sides, p: params)
+    var runs = sides.map { uniformRuns($0, p: params) }
+    var level = borderLevel(runs: runs, sides: sides, p: params)
+
+    // 1b. The holder at the ends of the lines. A side whose first run, from
+    //     the rim, is not the border tone shows the holder (or light table)
+    //     there, and every line of the two sides across it ends in that
+    //     stretch, which costs those lines their uniformity: a white holder
+    //     on a converted scan, a seventh of each line, leaves a clean rebate
+    //     line at 0.75. A side that found no run at all is measured again
+    //     without it (only then: elsewhere the full line has served well).
+    var lineStart = [0, 0, 0, 0], lineEnd = [0, 0, 0, 0]
+    if let lv = level {
+        var depth = [0, 0, 0, 0]
+        for k in 0..<4 {
+            if let r0 = runs[k].first, r0.start <= 2, abs(r0.level - lv) > params.levelTol {
+                depth[k] = min(r0.end + params.holderMargin, sides[k].n / 4)
+            }
+        }
+        for k in 0..<4 {
+            // a top/bottom line runs left to right, a left/right one top to bottom
+            let (a, b) = (k == 1 || k == 3) ? (depth[0], depth[2]) : (depth[1], depth[3])
+            guard runs[k].isEmpty, a + b > 0, sides[k].len - a - b >= 32 else { continue }
+            let t = trimmed(sides[k], start: a, end: b)
+            let r = uniformRuns(t, p: params)
+            guard !r.isEmpty else { continue }
+            sides[k] = t
+            runs[k] = r
+            lineStart[k] = a; lineEnd[k] = b
+        }
+        if lineStart.contains(where: { $0 > 0 }) || lineEnd.contains(where: { $0 > 0 }) {
+            level = borderLevel(runs: runs, sides: sides, p: params) ?? lv
+        }
+    }
     dbg.level = level ?? -1
     dbg.dark = (level ?? 0) < percentile(g.px, 50)
 
@@ -944,7 +983,9 @@ func analyzeGray(_ g: Gray, params: Params, dump: Bool = false) -> Analysis {
             let s = sides[k]
             // along a left/right side the line runs top to bottom: the span is between T and B
             let (a, b) = (k == 0 || k == 2) ? (seenEdge(1), seenEdge(3)) : (seenEdge(0), seenEdge(2))
-            let lo = (a ?? 0) + 3, hi = s.len - (b ?? 0) - 3
+            // (in the side's own line, which may start past a holder)
+            let lo = max(0, (a ?? lineStart[k]) - lineStart[k]) + 3
+            let hi = s.len - max(0, (b ?? lineEnd[k]) - lineEnd[k]) - 3
             guard hi - lo >= 8 else { continue }
             let e1 = refineEdge(s, e: e0, level: lv, span: lo..<hi, p: params)
             if e1 != e0 {

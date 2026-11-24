@@ -95,6 +95,21 @@ of the border tone" would take it. A border run must be flat over its first
 one. Only the head is judged, because a border run can go on to merge with
 pale picture that the faint-edge step separates later.
 
+## The holder at the ends of the lines
+
+A line along the top or bottom also crosses the holder at its two ends
+wherever the holder shows at the left and right, and the same the other way
+round. On a scan converted before cropping (Negative Lab Pro renders the
+holder white and the rebate near black) that seventh of each line, plus a
+little noise, kept the clean rebate lines at 0.73-0.79 uniform, under the
+0.8 a run needs: top and bottom found no run at all, the frame was centred
+from the left and right by its shape alone, and it landed 2 mm low on
+DSC02794 (top edge in the picture, bottom one in the holes). So a side
+that finds no run is measured again with its lines starting and ending
+past the holder (where the side across shows a first run, from the rim,
+that is not the border tone, plus two lines for its soft edge). Only such
+sides: trimming every line moved frames that the full lines had right.
+
 ## Which side moves
 
 When the frame measures too wide or too tall for its shape, the whole
@@ -310,12 +325,18 @@ cuts the sprocket holes on one side, 2.3 mm past the frame."
 
 **No holes seen.** Converted scans hide their holes: after inversion they
 are as black as the rebate around them (the tulips, the Met and DSC09348
-in the test set). A scan still counts as a whole strip when the film goes
-on at least 4 mm past both long sides, and gets the same crop. Anything
-else (every Easy35 scan: 0.7 mm above the frame, half holes below) is not a
-sprocket scan: with the crop edge set to Sprockets it keeps a thin border,
-quietly, the summary saying why; nothing is flagged. The review window
-switches it live and a line under the crop edge says what happened.
+in the test set, DSC02794 once converted). Automatically, such a scan
+still counts as a whole strip when the film goes on at least 4 mm past
+both long sides; a holder that cuts the film closer than that (DSC02794
+converted: 2.2 mm above the frame) keeps the default crop edge, since
+nothing tells it apart from a scan without sprockets. Choosing Sprockets
+(in the settings or the review window) trusts the film as far as it goes,
+on the axis across the frame's long sides, when both sides show at least
+1.8 mm. Anything less (every Easy35 scan: 0.7 mm above the frame, half
+holes below) keeps a thin border, quietly, the summary saying why; nothing
+is flagged. The review window switches it live and a line under the crop
+edge says what happened. Cropping before converting, as Negative Lab Pro
+asks anyway, lets the holes be seen.
 
 ## Batch prior
 

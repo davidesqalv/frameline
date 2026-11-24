@@ -27,12 +27,29 @@ M.SPROCKET_MIN_MM = 1.8
 -- both long sides (mm); the holes end about 3.3 mm out.
 M.STRIP_MIN_MM = 4.0
 
--- True when the detector saw a row of sprocket holes on both sides of one
--- axis: the photo shows its sprockets, whatever the crop edge.
-function M.showsHoles(edges)
-    local h = edges and edges.holes
-    if not h then return false end
-    return ((h.t or 0) > 0 and (h.b or 0) > 0) or ((h.l or 0) > 0 and (h.r or 0) > 0)
+-- True when a scan shows its sprockets, so that it gets them whatever the
+-- crop edge: the detector saw a row of holes on both sides of one axis, or
+-- (holes hidden, as on a converted scan) the film goes on at least
+-- STRIP_MIN_MM past both of the frame's long sides, a whole strip.
+-- edges as detected (displayed), dims the file's, orientation as displayed.
+function M.sprocketScan(edges, dims, orientation)
+    if not edges then return false end
+    local e = M.toFileSpace(edges, orientation)
+    local h = e.holes
+    if h and (((h.t or 0) > 0 and (h.b or 0) > 0) or ((h.l or 0) > 0 and (h.r or 0) > 0)) then
+        return true
+    end
+    if not dims then return false end
+    local W, H = dims.width, dims.height
+    local fw, fh = (1 - e.l - e.r) * W, (1 - e.t - e.b) * H
+    if fw <= 0 or fh <= 0 then return false end
+    local f = e.film or {}
+    if fw >= fh then
+        local mm = fh / 24 / H                -- 1 mm as a fraction of the height
+        return (f.t or 0) >= M.STRIP_MIN_MM * mm and (f.b or 0) >= M.STRIP_MIN_MM * mm
+    end
+    local mm = fw / 24 / W
+    return (f.l or 0) >= M.STRIP_MIN_MM * mm and (f.r or 0) >= M.STRIP_MIN_MM * mm
 end
 
 -- True when the photo already has a crop (or straighten angle) applied.
@@ -217,11 +234,13 @@ function M.cropFor(edges, border, straighten, dims, aspect, orientation)
     -- out to the film's end (edges.film), a hair inside it unless the film
     -- runs off the scan, keeping the tilt's reach clear, and never stops
     -- inside the holes. The other two sides keep a hairline of rebate. The
-    -- picture sits where the film puts it, centred or not. Converted scans
-    -- hide their holes in the black rebate, so without holes a full strip
-    -- still counts when the film goes on at least STRIP_MIN_MM past both long
-    -- sides. Anything else is not a sprocket scan and keeps a thin border
-    -- (kind 'plain'), quietly.
+    -- picture sits where the film puts it, centred or not. Without holes
+    -- seen (a converted scan hides them in the black rebate) the axis is the
+    -- one across the frame's long sides and the film is trusted as far as it
+    -- goes: Sprockets was chosen. Either way each side must show
+    -- SPROCKET_MIN_MM; otherwise the scan shows no sprockets and keeps a thin
+    -- border (kind 'plain'), quietly. (Choosing Sprockets on its own, in a
+    -- run, is sprocketScan's business, which is stricter without holes.)
     -- Returns, besides the crop: note (always nil now; kept for callers),
     -- info (a sentence for the summary) and kind ('holes', 'cut' when the
     -- scan cuts a row of holes, 'plain', or nil for other crop edges).
@@ -238,7 +257,6 @@ function M.cropFor(edges, border, straighten, dims, aspect, orientation)
         local long = wf2 >= hf2            -- the axis across the frame's long sides is the vertical one
         local v = long
         if hv ~= hh then v = hv end
-        local seen = hv or hh
         local n = v and H or W
         local e1, e2 = v and edges.t or edges.l, v and edges.b or edges.r
         local f1, f2 = (v and film.t or film.l) or 0, (v and film.b or film.r) or 0
@@ -254,7 +272,7 @@ function M.cropFor(edges, border, straighten, dims, aspect, orientation)
         local m1, m2 = marginOf(e1, f1, h1), marginOf(e2, f2, h2)
         local shown1, shown2 = (e1 - m1) * n / math.max(mm, 1e-9), (e2 - m2) * n / math.max(mm, 1e-9)
         local least = math.min(shown1, shown2)
-        if mm > 0 and least >= (seen and M.SPROCKET_MIN_MM or M.STRIP_MIN_MM) then
+        if mm > 0 and least >= M.SPROCKET_MIN_MM then
             if v then
                 cx, cy, wf, hf = cx2, (m1 + 1 - m2) / 2, wf2, (1 - m1 - m2) * H
             else
