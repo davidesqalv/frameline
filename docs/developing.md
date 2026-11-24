@@ -66,7 +66,7 @@ All tunables are helper flags, so you can iterate without rebuilding:
 | `--aspect` | 1.5 | frame aspect used for geometry; 0 disables inference |
 | `--tol` | 14 | luminance tolerance for a line to count as uniform |
 | `--level-tol` | 15 | how close a run's tone must be to the border tone |
-| `--max-border` | 0.18 | give up on a side whose border run is wider than this |
+| `--max-border` | 0.22 | give up on a side whose border run is wider than this |
 | `--border-start` | 0.10 | the border run must begin within this outer fraction |
 | `--percentile` | 95 | gradient percentile that defines edge pixels |
 | `--min-area` | 0.30 | reject crops keeping less than this fraction of the image |

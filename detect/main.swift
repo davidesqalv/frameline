@@ -73,6 +73,7 @@ struct Params {
     var borderStart = 0.10          // the border run must begin within this outer fraction
     var maxBorder = 0.22            // and end within this one, else the side is left uncropped
     var plausibleBorder = 0.12      // a soft edge further in than this is not a border
+    var subtleMaxBorder = 0.17      // a faint step further in than this is a step in the picture (sprocket sides reach 0.155)
     var peelPlausibleBorder = 0.20  // ...measured from the film outline inside a full-border scan (sprocket sides run to ~16%)
     var snapMin: Float = 0.15       // minimum edge-pixel fraction for a line to snap to
     var aspect = 1.5                // film frame aspect (long/short side); 0 disables geometry
@@ -644,10 +645,15 @@ func chooseRun(_ runs: [Run], s: SideView, p: Params, level: Float) -> Run? {
     // the rebate is the next run, if it begins right after.)
     if holderRun(runs, 0, p: p), abs(runs[0].level - level) > p.levelTol {
         let h = runs[0]
-        var r = runs[1]
-        if r.end - r.start < p.holderEdgeRun, runs.count > 2, runs[2].start - r.end <= p.gapMax { r = runs[2] }
+        // (so is a run whose tone is nearer the holder's than the border's:
+        // the holder's glow, a light band between a white holder and black film)
+        var k = 1
+        while k + 1 < runs.count, runs[k + 1].start - runs[k].end <= p.gapMax,
+              runs[k].end - runs[k].start < p.holderEdgeRun
+                || abs(runs[k].level - h.level) < abs(runs[k].level - level) { k += 1 }
+        let r = runs[k]
         if r.start <= startLimit, (r.level - h.level) * (level - h.level) > 0,
-           abs(r.level - h.level) > p.levelTol {
+           abs(r.level - h.level) > p.levelTol, abs(r.level - level) <= abs(r.level - h.level) {
             cands.removeAll { $0.start < r.start }
             if !cands.contains(where: { $0.start == r.start }) { cands.insert(r, at: 0) }
         }
@@ -1264,6 +1270,16 @@ func finish(_ a: Analysis, params: Params, prior: [Double?]) -> (Detection?, Deb
         // film outline the sprocket sides are wide, so the limit is larger
         // and counted from the outline
         let plausible = dbg.peeled ? params.peelPlausibleBorder : params.plausibleBorder
+        // A faint step found further in than any border reaches (subtleMaxBorder) is a
+        // step inside the picture (black foreground against a black border
+        // runs on until something lighter): no edge; the shape places it.
+        for i in 0..<4 where res[i].method == "subtle" && !res[i].holeBacked && !dbg.peeled {
+            if Double(res[i].edge ?? 0) > nOf(i) * params.subtleMaxBorder {
+                res[i].method = "too wide"
+                res[i].edge = nil
+                res[i].avail = 0
+            }
+        }
         // (not one that sits just past its sprocket holes: that is a frame edge)
         for i in 0..<4 where res[i].method == "soft" && !res[i].holeBacked {
             let base = dbg.peeled && dbg.outline.count == 4 ? dbg.outline[i] : 0
