@@ -91,6 +91,9 @@ struct Params {
     var angleLongSideWeight = 2.0   // the frame's long sides count this much more in the tilt vote
     var angleMinBorder = 0.010      // a side with less border than this (fraction) fits the tilt badly
     var sprocketUniMax: Float = 0.7 // a line through the sprocket holes is at most this uniform
+    var sprocketMinHoles = 4        // a line through the sprocket row crosses at least this many whole holes
+    var sprocketPitchTol = 0.25     // ...evenly spaced: every hole-to-hole step within this fraction of the median step
+    var sprocketRowShare = 0.6      // a gap is a sprocket row when at least this share of its lines are
     var peelInset = 3               // lines skipped inside the film outline before the second pass
     var peelBand = 4                // lines sampled just inside the outline to see the rebate ring
     var peelBandUni: Float = 0.6    // ...which may carry edge printing and frame numbers, so this uniform is enough
@@ -114,6 +117,7 @@ struct SideDebug {
     var film: Double = 0            // how far the film itself continues outside the edge (sprockets and all), fraction
     var filmEnd: Int? = nil         // the line (from the rim) where the film ends; nil = not known
     var runStart = 0                // where the border run began (from the rim), to re-measure avail
+    var toneLines: [Bool] = []      // per line from the rim (to the search limit): mostly border tone, i.e. film
 }
 
 struct DebugInfo {
@@ -522,25 +526,62 @@ func chooseRun(_ runs: [Run], s: SideView, p: Params, level: Float) -> Run? {
     // The border resumes after the sprocket holes: the picked run faded out
     // without an edge line, every line of the gap is the border tone with
     // holes punched out of it (still the majority, but well short of
-    // uniform), and a flat run of the same tone follows that ends at a
-    // strong edge line. A bright sky next to a bright border fails this on
-    // both counts: its gap is nearly uniform and it ends in nothing.
+    // uniform), and a run of the same tone follows. That run must either be
+    // flat and end at a strong edge line, or the gap must really be a row of
+    // holes: evenly spaced, alike (see sprocketLine). The second matters
+    // when the picture next to the frame edge is as pale as the rebate, so
+    // the run after the holes fades out too. A bright sky next to a bright
+    // border fails this: its gap is nearly uniform, it ends in nothing, and
+    // nothing in it repeats like holes.
     for d in runs where d.start > pick.end && d.start <= Int(Double(s.n) * p.maxBorder) {
-        guard !pick.hardEnd, !pick.open, d.hardEnd, abs(headLevel(d) - headLevel(pick)) <= p.jumpTol,
-              headDrift(d) <= p.flatMax, d.start - pick.end >= p.minRun else { continue }
+        guard !pick.hardEnd, !pick.open, abs(headLevel(d) - headLevel(pick)) <= p.jumpTol,
+              d.start - pick.end >= p.minRun else { continue }
+        let shaped = d.hardEnd && headDrift(d) <= p.flatMax
         // every gap line keeps the border tone; nearly all are far from
         // uniform (the rows through the holes' rounded ends less so)
         var punched = true
         var tooUniform = 0
+        var holeLines = 0
         for i in pick.end..<d.start {
             let (med, uni) = lineProfile(s, i, tol: p.borderTol)
             if abs(med - level) > p.levelTol { punched = false; break }
             if uni >= p.sprocketUniMax { tooUniform += 1 }
+            if !shaped && sprocketLine(s, i, level: level, p: p) { holeLines += 1 }
         }
         if tooUniform > max(2, (d.start - pick.end) / 6) { punched = false }
-        if punched { pick = d } else { break }
+        let holes = Double(holeLines) >= p.sprocketRowShare * Double(d.start - pick.end)
+        if punched && (shaped || holes) {
+            pick = d
+        } else if shaped {
+            break
+        }
     }
     return pick
+}
+
+/// One line through a row of sprocket holes: off-tone stretches (the holes)
+/// at least sprocketMinHoles of them, about the same length and evenly
+/// spaced. Stretches that touch either end of the line (the holder, a hole
+/// it cuts) are left out, as are specks under three pixels (grain) and,
+/// against the median hole, pieces under half its length (dust).
+func sprocketLine(_ s: SideView, _ i: Int, level: Float, p: Params) -> Bool {
+    var segs: [(start: Int, len: Int)] = []
+    var j = 0
+    while j < s.len {
+        guard abs(s.lum(i, j) - level) > p.borderTol else { j += 1; continue }
+        let a = j
+        while j < s.len && abs(s.lum(i, j) - level) > p.borderTol { j += 1 }
+        if a > 0 && j < s.len && j - a >= 3 { segs.append((a, j - a)) }
+    }
+    guard segs.count >= p.sprocketMinHoles else { return false }
+    let typical = segs.map { $0.len }.sorted()[segs.count / 2]
+    let holes = segs.filter { 2 * $0.len >= typical }
+    guard holes.count >= p.sprocketMinHoles,
+          holes.allSatisfy({ Double($0.len) <= 1.6 * Double(typical) }) else { return false }
+    let steps = zip(holes.dropFirst(), holes).map { Double($0.start - $1.start) }
+    let step = steps.sorted()[steps.count / 2]
+    guard step >= 6 else { return false }
+    return steps.allSatisfy { abs($0 - step) <= p.sprocketPitchTol * step }
 }
 
 /// Where within its transition an edge sits. A sharp edge is one line; a
@@ -842,6 +883,14 @@ func analyzeGray(_ g: Gray, params: Params, dump: Bool = false) -> Analysis {
         } else {
             d.method = "no border"
         }
+        // Which lines near the rim are mostly border tone, i.e. film: on a
+        // side with no clean border run (holes cut by the scan's edge, then
+        // rebate merging into pale picture) this still tells how far the film
+        // goes once the edge has been placed from the frame's shape.
+        if let lv = level {
+            let limit = min(s.n, Int(Double(s.n) * params.maxBorder))
+            d.toneLines = (0..<limit).map { abs(lineProfile(s, $0, tol: params.borderTol).med - lv) <= params.levelTol }
+        }
         res.append(d)
     }
 
@@ -1124,10 +1173,17 @@ func finish(_ a: Analysis, params: Params, prior: [Double?]) -> (Detection?, Deb
         }
     }
     // how far the film goes on outside each edge, measured from the edge as
-    // finally placed; a side placed without any measurement has no film known
+    // finally placed. A side without a border run has its film measured the
+    // same way from the placed edge: outward while the lines stay mostly
+    // border tone; an edge with no film next to it has none known.
     for i in 0..<4 {
-        if let fe = res[i].filmEnd, let ed = res[i].edge, ["run", "soft", "subtle", "agreed", "partial", "inferred", "squeezed"].contains(res[i].method) {
+        let placed = ["run", "soft", "subtle", "agreed", "partial", "inferred", "squeezed"].contains(res[i].method)
+        if let fe = res[i].filmEnd, let ed = res[i].edge, placed {
             res[i].film = max(0, Double(ed - fe) / Double(i == 0 || i == 2 ? w : h))
+        } else if let ed = res[i].edge, placed || res[i].method == "batch", ed > 0, ed <= res[i].toneLines.count {
+            var k = ed
+            while k > 0 && res[i].toneLines[k - 1] { k -= 1 }
+            res[i].film = Double(ed - k) / Double(i == 0 || i == 2 ? w : h)
         } else {
             res[i].film = 0
         }

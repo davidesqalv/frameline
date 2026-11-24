@@ -220,6 +220,24 @@ on both counts (its gap is nearly uniform, and it ends in nothing), which
 is what the night-sky scan checks. Verified on a Tri-X negative shot on a
 light table (`test-scans/fullborders/DSC_bw_dog.jpg`).
 
+The later run need not end at an edge line, or be flat, when the gap is
+plainly a row of holes: at least 60% of its lines cross four or more
+off-tone stretches of about the same length (dust and grain left out),
+evenly spaced to within a quarter of the median step, ignoring whatever
+touches the line's ends (holder, a hole it cuts). A Portra 400 roll scanned
+in a holder that shows both sprocket rows needed this: wherever the picture
+next to the frame edge was as pale as the rebate, the strip between the
+holes and the frame faded out instead of ending at a line, the detector put
+the frame edge below the holes, and the frame's shape then dragged the
+opposite edge into the picture (15 of 40 frames). Picture texture never
+repeats like that, so the stricter test still holds off a bright sky.
+
+A side whose edge was placed from the frame's shape (no border run of its
+own) still gets its film measured: outward from the placed edge while the
+lines stay mostly border tone. On that roll the top row of holes is cut by
+the scan's edge and the rebate below it merges into pale picture; the film
+plainly runs off the scan there, which Sprockets needs to know.
+
 That scan also settled what a soft side is worth. Its right edge borders
 pale sand of exactly the rebate's tone, so the border run walked 117 lines
 into the picture and faded out there: no edge line, no tone step. The
