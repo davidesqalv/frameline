@@ -270,7 +270,19 @@ the hairline on the long sides goes first (the short sides then grow about
 half a percent less), then the rectangle may slide up to 1.5% of the axis
 toward the side that has film to spare (the second Tri-X dog sits low in
 its scan and would otherwise have ended two pixels past the bottom edge and
-been refused). Only then does the photo get a thin border instead, the
+been refused). When it still does not fit because the scan (or the
+holder) ends inside the sprocket row on one side, each growing side goes
+as far as its own film allows, up to where the 9:8 rectangle would have
+reached: the cut side runs to the end of the film, the other keeps its
+whole row of holes, and the picture sits off centre by the difference.
+This is the one place a crop edge is not symmetric, on purpose: the step
+is there to show sprockets (a holder that cuts the top row 2.2 mm past the
+frame, with a full row and 4 mm below, gets exactly that). The summary
+says so ("Sprockets cut short on one side: the film in this scan stops
+2.2 mm past the frame there; the other side shows 4.0 mm"). It needs at
+least 1.8 mm past the frame on both sides, about half of each hole (they
+start about 0.5 mm past the frame and are 2.8 mm tall). Below that the
+photo gets a thin border instead, the
 reason lands in its Frameline summary in millimetres of film ("the crop
 would reach 4.3 mm past the frame, this scan shows 0.7 mm of film there"),
 and the photo goes to Collections › Frameline › No room for sprockets, a

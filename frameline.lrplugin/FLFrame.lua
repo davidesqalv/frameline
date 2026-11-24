@@ -20,6 +20,12 @@ M.HOLDER_TOLERANCE = 0.4
 -- Sprockets: when the 9:8 rectangle does not fit centred, it may slide this
 -- much (fraction of the axis) toward the side that has film to spare.
 M.SPROCKET_SHIFT = 0.015
+-- Sprockets cut short: when the scan ends inside the sprocket row on one
+-- side, that side stops where the film ends and the other keeps its full
+-- row, as long as both show at least this much film (mm past the frame).
+-- On 35mm the holes begin about 0.5 mm past the frame and are 2.8 mm tall,
+-- so 1.8 mm keeps about half of each hole.
+M.SPROCKET_MIN_MM = 1.8
 
 -- True when the photo already has a crop (or straighten angle) applied.
 function M.hasCrop(photo)
@@ -109,8 +115,9 @@ end
 -- (0 = free, as detected); edges.aspect overrides it when set.
 -- orientation: how the photo is displayed ('AB', 'BC', 'CD', 'DA'); the
 -- edges are as detected on the displayed preview and are mapped to the file.
--- Returns the develop settings and, second, nil or a sentence saying why
--- film borders were asked for but could not be shown.
+-- Returns the develop settings; second, nil or a sentence saying why
+-- sprockets were asked for but could not be shown; third, nil or a sentence
+-- saying the sprockets are shown but cut short where the scan's film ends.
 function M.cropFor(edges, border, straighten, dims, aspect, orientation)
     edges = M.toFileSpace(edges, orientation)
     local avail, film = edges.avail or {}, edges.film or {}
@@ -201,7 +208,7 @@ function M.cropFor(edges, border, straighten, dims, aspect, orientation)
     -- slide a little toward the side with room; only then is there no room,
     -- and the reason says, in millimetres of film, how far the crop would
     -- reach past the frame and how far the film goes.
-    local note
+    local note, trimmed
     if B > 0 and wf > 0 and hf > 0 then
         local sa = math.abs(math.sin(math.rad(angle)))
         local frameLong = math.max((1 - edges.l - edges.r) * W, (1 - edges.t - edges.b) * H)
@@ -256,16 +263,53 @@ function M.cropFor(edges, border, straighten, dims, aspect, orientation)
             cx, cy = (l + 1 - r) / 2, (t + 1 - b) / 2
             if fit[8] then cy = cy + fit[7] else cx = cx + fit[7] end
         else
-            note = string.format(
-                'No room for sprockets: the crop would reach %.1f mm past the frame, this scan shows %.1f mm of film there.',
-                short[1], short[2])
+            -- Still no fit: the scan (or the holder) ends inside the sprocket
+            -- row on one side. Then each short side grows as far as its own
+            -- film goes, up to where the 9:8 rectangle would have reached:
+            -- the side with film to spare keeps its whole sprocket row, the
+            -- cut side stops at the film's end, and the picture sits off
+            -- centre by the difference (the point of the step is the
+            -- sprockets). The long sides keep their hairline. Only when a
+            -- side would show too little of its holes is there no room.
+            local l2, t2, r2, b2 = rectFor(Prefs.filmMargin)
+            local cx2, cy2 = (l2 + 1 - r2) / 2, (t2 + 1 - b2) / 2
+            local wf2, hf2 = keepShape((1 - l2 - r2) * W, (1 - t2 - b2) * H)
+            local across = wf2 >= hf2     -- the growing axis is the vertical one
+            local c, n, e1, e2, f1, f2, slack, full
+            if across then
+                c, n, e1, e2, f1, f2 = cy2, H, edges.t, edges.b, film.t or 0, film.b or 0
+                slack, full = wf2 * sa / 2, wf2 / B / H / 2
+            else
+                c, n, e1, e2, f1, f2 = cx2, W, edges.l, edges.r, film.l or 0, film.r or 0
+                slack, full = hf2 * sa / 2, hf2 / B / W / 2
+            end
+            local function hair(edgeIn, filmOut) return (filmOut >= edgeIn - 0.0005) and 0 or 0.003 end
+            -- each side's crop margin: the 9:8 one, or nearer the frame where the film ends first
+            local m1 = math.max(c - full, e1 - f1 + hair(e1, f1) + slack / n)
+            local m2 = math.max(1 - c - full, e2 - f2 + hair(e2, f2) + slack / n)
+            local shown1, shown2 = (e1 - m1) * n / pxPerMm, (e2 - m2) * n / pxPerMm
+            if math.min(shown1, shown2) >= M.SPROCKET_MIN_MM then
+                local extent = 1 - m1 - m2
+                if across then
+                    cx, cy, wf, hf = cx2, (m1 + 1 - m2) / 2, wf2, extent * H
+                else
+                    cx, cy, wf, hf = (m1 + 1 - m2) / 2, cy2, extent * W, hf2
+                end
+                trimmed = string.format(
+                    'Sprockets cut short on one side: the film in this scan stops %.1f mm past the frame there; the other side shows %.1f mm.',
+                    math.min(shown1, shown2), math.max(shown1, shown2))
+            else
+                note = string.format(
+                    'No room for sprockets: the crop would reach %.1f mm past the frame, this scan shows %.1f mm of film there.',
+                    short[1], short[2])
+            end
         end
     end
 
     if angle == 0 then
         local hw, hh = wf / W / 2, hf / H / 2
         return { CropLeft = math.max(0, cx - hw), CropTop = math.max(0, cy - hh),
-                 CropRight = math.min(1, cx + hw), CropBottom = math.min(1, cy + hh), CropAngle = 0 }, note
+                 CropRight = math.min(1, cx + hw), CropBottom = math.min(1, cy + hh), CropAngle = 0 }, note, trimmed
     end
     -- Under a straighten angle Lightroom reads the crop fractions against a
     -- reference that is narrower and taller than the image (measured from
@@ -286,7 +330,7 @@ function M.cropFor(edges, border, straighten, dims, aspect, orientation)
         CropLeft = math.max(0, ucx - hw), CropTop = math.max(0, ucy - hh),
         CropRight = math.min(1, ucx + hw), CropBottom = math.min(1, ucy + hh),
         CropAngle = M.ANGLE_SIGN * angle,
-    }, note
+    }, note, trimmed
 end
 
 -- l,t,r,b,angle,availL..B,aspect,filmL..B,borders (older photos stop early)

@@ -40,28 +40,39 @@ function M.show(catalog, photos, prefs)
         props.format = startFormat
         props.note = ''
 
-        -- the crop each photo gets for a choice, and the film borders note if any
+        -- the crop each photo gets for a choice, and the sprocket sentences if any
         local function cropOf(it, val, fmt)
             it.data.edges.aspect = Prefs.aspectFor(fmt)
             return Frame.cropFor(it.data.edges, val, prefs.straighten, it.dims, nil, it.orientation)
         end
         -- the line under the crop edge
-        local function noteFor(val, noRoom, lastNote)
+        -- counts: { noRoom, lastNote, cut, lastCut } over the photos
+        local function noteFor(val, k)
             if Prefs.bordersFor(val) == 0 then return '' end
-            if noRoom == 0 then
-                return 'Sprockets: the crop is 9:8 with the sprocket holes in, not 3:2.'
-            elseif #items == 1 then
-                return lastNote
+            if #items == 1 then
+                return k.lastNote or k.lastCut or 'Sprockets: the crop is 9:8 with the sprocket holes in, not 3:2.'
             end
-            return string.format('%d of %d have no room for sprockets and keep a thin border.', noRoom, #items)
+            local parts = {}
+            if k.cut > 0 then
+                parts[#parts + 1] = string.format('%d of %d have the sprockets cut short on one side where the scan ends.', k.cut, #items)
+            end
+            if k.noRoom > 0 then
+                parts[#parts + 1] = string.format('%d of %d have no room for sprockets and keep a thin border.', k.noRoom, #items)
+            end
+            if #parts == 0 then return 'Sprockets: the crop is 9:8 with the sprocket holes in, not 3:2.' end
+            return table.concat(parts, ' ')
+        end
+        local function tally(k, note, trimmed)
+            if note then k.noRoom = k.noRoom + 1; k.lastNote = note end
+            if trimmed then k.cut = k.cut + 1; k.lastCut = trimmed end
         end
         do
-            local noRoom, lastNote = 0, nil
+            local k = { noRoom = 0, cut = 0 }
             for _, it in ipairs(items) do
-                local _, note = cropOf(it, startBorder, startFormat)
-                if note then noRoom = noRoom + 1; lastNote = note end
+                local _, note, trimmed = cropOf(it, startBorder, startFormat)
+                tally(k, note, trimmed)
             end
-            props.note = noteFor(startBorder, noRoom, lastNote)
+            props.note = noteFor(startBorder, k)
         end
 
         -- live update, one write at a time, always ending on the latest value
@@ -74,17 +85,17 @@ function M.show(catalog, photos, prefs)
                 while pending do
                     pending = false
                     local val, fmt = props.border, props.format
-                    local noRoom, lastNote = 0, nil
+                    local k = { noRoom = 0, cut = 0 }
                     catalog:withWriteAccessDo('Frameline edge', function()
                         for _, it in ipairs(items) do
-                            local crop, note = cropOf(it, val, fmt)
+                            local crop, note, trimmed = cropOf(it, val, fmt)
                             it.photo:applyDevelopSettings(crop, 'Frameline edge')
                             it.photo:setPropertyForPlugin(_PLUGIN, 'frameline_edges', Frame.edgesToString(it.data.edges))
-                            Frame.setBorder(it.photo, it.data, val, prefs.straighten, note)
-                            if note then noRoom = noRoom + 1; lastNote = note end
+                            Frame.setBorder(it.photo, it.data, val, prefs.straighten, note or trimmed)
+                            tally(k, note, trimmed)
                         end
                     end, { timeout = 3 })
-                    props.note = noteFor(val, noRoom, lastNote)
+                    props.note = noteFor(val, k)
                 end
                 applying = false
             end)
@@ -132,7 +143,7 @@ function M.show(catalog, photos, prefs)
                     end,
                 },
             },
-            f:static_text { title = bind 'note', font = '<system/small>', width = 440, height_in_lines = 2 },
+            f:static_text { title = bind 'note', font = '<system/small>', width = 440, height_in_lines = 3 },
 
             f:row {
                 f:push_button {
@@ -176,8 +187,8 @@ function M.show(catalog, photos, prefs)
                     it.photo:applyDevelopSettings(it.original, 'Frameline: cancel')
                     it.data.edges.aspect = Prefs.aspectFor(startFormat)
                     it.photo:setPropertyForPlugin(_PLUGIN, 'frameline_edges', Frame.edgesToString(it.data.edges))
-                    local _, note = cropOf(it, startBorder, startFormat)
-                    Frame.setBorder(it.photo, it.data, startBorder, prefs.straighten, note)
+                    local _, note, trimmed = cropOf(it, startBorder, startFormat)
+                    Frame.setBorder(it.photo, it.data, startBorder, prefs.straighten, note or trimmed)
                 end
             end, { timeout = 3 })
         end

@@ -15,5 +15,5 @@ return {
         { title = 'Frameline Settings…', file = 'Settings.lua' },
     },
 
-    VERSION = { major = 0, minor = 3, revision = 22 },
+    VERSION = { major = 0, minor = 3, revision = 23 },
 }

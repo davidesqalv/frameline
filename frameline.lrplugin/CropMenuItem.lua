@@ -332,15 +332,16 @@ LrTasks.startAsyncTask(function()
             local c = crops[i]
             if c and c.ok then
                 c.aspect = Prefs.aspectFor(prefs.format)
-                local crop, note = Frame.cropFor(c, prefs.border, prefs.straighten, Frame.dimensions(photo), c.aspect, Frame.orientation(photo))
+                local crop, note, trimmed = Frame.cropFor(c, prefs.border, prefs.straighten, Frame.dimensions(photo), c.aspect, Frame.orientation(photo))
                 photo:applyDevelopSettings(crop, 'Frameline')
-                Frame.store(photo, c, c.sides, c.check and 'check' or 'ok', prefs.border, prefs.straighten, note)
+                Frame.store(photo, c, c.sides, c.check and 'check' or 'ok', prefs.border, prefs.straighten, note or trimmed)
                 cropped = cropped + 1
                 if note then
                     noRoom[#noRoom + 1] = photo
                     log('photo %d: %s', i, note)
                 else
                     fitted[#fitted + 1] = photo
+                    if trimmed then log('photo %d: %s', i, trimmed) end
                 end
                 if c.check then
                     flagged[#flagged + 1] = photo

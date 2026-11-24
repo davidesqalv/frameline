@@ -30,11 +30,12 @@ LrFunctionContext.callWithContext('frameline settings', function(context)
                 f:popup_menu { value = bind 'border', items = Prefs.items(Prefs.borderSteps), width_in_chars = 28 },
             },
             f:static_text {
-                title = 'Sprockets keeps the sprocket holes in: the crop becomes 9:8, not 3:2. It needs a scan that shows the whole strip; '
-                    .. 'a photo without that much film gets a thin border instead and goes to Collections › Frameline › No room for sprockets.',
+                title = 'Sprockets keeps the sprocket holes in: the crop becomes 9:8, not 3:2. When the scan cuts one row of holes, '
+                    .. 'that side stops where the film ends and the other keeps its full row. A photo with less than half the holes '
+                    .. 'showing gets a thin border instead and goes to Collections › Frameline › No room for sprockets.',
                 font = '<system/small>',
                 width = 420,
-                height_in_lines = 4,
+                height_in_lines = 5,
             },
             f:row {
                 f:static_text { title = '', width = share 'lbl' },
