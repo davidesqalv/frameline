@@ -266,50 +266,60 @@ foliage against the rebate) and the second Tri-X dog (`DSC_bw_dog2.jpg`,
 in a round-vignetted holder, with sprocket holes so faint on the shaded
 side that the run walk reads them as border) shaped these rules.
 
-## Sprockets (9:8)
+## Sprockets
 
-The last crop edge step, "Sprockets", keeps the frame's long sides with
-a hairline of rebate (0.5%) and grows the short sides until the whole
-rectangle is 9:8, centred on the frame: on 35mm that is 4 mm of film beyond
-the frame on each side, which takes in the sprocket holes and stops about
-1.5 mm inside the film's edge (the edge printing gets clipped; that is the
-look). It sits in the crop edge list rather than the format list because
-that is what it is, how much to show around the frame; the format still
-says what shape the frame has. Nothing stacks on it: the percentage steps
-are simply other choices. It is a hard rule with a hard precondition: the
-film must really go that far on both growing sides. The detector reports,
-per side, how far the film continues past the frame (`film` in the CSV: to
-the outline found by the second pass, or on a scan without a surround as
-far as the lines stay mostly border tone, so frame numbers and sprocket
-rows at the rim count as film). The plug-in adds the tilt's reach (half the
-rectangle's long side times the sine of the angle) and the usual hair, none
-where the film runs off the scan. When the rectangle does not fit centred,
-the hairline on the long sides goes first (the short sides then grow about
-half a percent less), then the rectangle may slide up to 1.5% of the axis
-toward the side that has film to spare (the second Tri-X dog sits low in
-its scan and would otherwise have ended two pixels past the bottom edge and
-been refused). When it still does not fit because the scan (or the
-holder) ends inside the sprocket row on one side, each growing side goes
-as far as its own film allows, up to where the 9:8 rectangle would have
-reached: the cut side runs to the end of the film, the other keeps its
-whole row of holes, and the picture sits off centre by the difference.
-This is the one place a crop edge is not symmetric, on purpose: the step
-is there to show sprockets (a holder that cuts the top row 2.2 mm past the
-frame, with a full row and 4 mm below, gets exactly that). The summary
-says so ("Sprockets cut short on one side: the film in this scan stops
-2.2 mm past the frame there; the other side shows 4.0 mm"). It needs at
-least 1.8 mm past the frame on both sides, about half of each hole (they
-start about 0.5 mm past the frame and are 2.8 mm tall). Below that the
-photo gets a thin border instead, the
-reason lands in its Frameline summary in millimetres of film ("the crop
-would reach 4.3 mm past the frame, this scan shows 0.7 mm of film there"),
-and the photo goes to Collections › Frameline › No room for sprockets, a
-collection that only exists once that has happened. The review window switches it live and a line under the crop
-edge says what happened. None of the Easy35 scans in the test set have the
-room (0.7 mm above the frame, sprocket halves below); the Met light-table
-scan does, with about 0.3 mm to spare: it shows 4.6 mm of rebate beside the
-frame rather than the nominal 5.5, so a wider hairline on the long sides
-(which grows the short sides in proportion) would already tip it over.
+The last crop edge step, "Sprockets", keeps the sprocket holes in wherever
+a scan shows them. It sits in the crop edge list rather than the format
+list because that is what it is, how much to show around the frame; the
+format still says what shape the frame has. Nothing stacks on it: the
+percentage steps are simply other choices.
+
+**Finding the holes.** The detector looks for them itself. A line through a
+row of holes crosses four or more off-tone stretches of about the same
+length, evenly spaced to within a quarter of the median step; stretches
+that touch the line's ends (holder, a hole it cuts) are ignored, as are
+specks under three pixels and pieces under half the typical hole (dust).
+After the frame edges are final, each side is walked outward: past the
+rebate (the row must begin within 2.5 mm of the edge; nominally it is
+about 0.7 mm), through the lines that cross holes (three failing lines
+bridged, for the holes' rounded ends), to the row's outer end, then past
+the rounded ends to the first clean rebate line. The reach reported
+(`holes` in the CSV) adds half of that clean strip, at most 0.3 mm, so a
+crop there shows whole holes and stops short of edge printing whose thin
+letter tops still pass as clean lines. A row needs at least 1 mm of holes.
+Millimetres come from the frame's extent across the film, 24 mm on every
+135 format. A row the scan cuts runs to the rim.
+
+**The crop.** Where both sides of one axis show holes, each of them ends at
+its own reach, or where the film ends when the scan cuts the row (no hair
+needed where the film runs off the scan; the tilt's reach, half the
+crop's other side times the sine of the angle, is kept clear of the film's
+end). The other two sides keep a hairline of rebate (0.5%). The picture
+sits where the holes put it, centred or not: this is the one place a crop
+edge is not symmetric, on purpose, because the step is there to show
+sprockets. Each side must show at least 1.8 mm past the frame, about half
+a hole. On a Portra roll in a holder that cuts the top row 2.2 mm past the
+frame, the top runs to the scan's edge and the bottom keeps its full row,
+and the summary says "The scan cuts the sprocket holes on one side, so
+that side stops where the film ends, 2.2 mm past the frame."
+
+**No holes seen.** Converted scans hide their holes: after inversion they
+are as black as the rebate around them (the tulips, the Met and DSC09348
+in the test set). For those the earlier rectangle stays: the short sides
+grow until the whole is 9:8, centred, when the film really goes that far
+on both sides (`film` in the CSV), first with the hairline on the long
+sides, then without, then sliding up to 1.5% toward the side with film to
+spare. Otherwise the scan simply is not a sprocket scan (every Easy35 scan,
+which shows 0.7 mm above the frame and half holes below) and keeps a thin
+border, quietly: the summary says why, nothing is flagged, so Sprockets can
+stay on for every roll. The review window switches it live and a line
+under the crop edge says what happened.
+
+Photos cropped before holes were reported (a stored edge string without
+them) keep the older behaviour until they are detected again: the 9:8
+rectangle, else the cut-short fallback (each side as far as its film goes,
+up to 9:8's reach, at least 1.8 mm), else a thin border, the reason in
+millimetres of film and Collections › Frameline › No room for sprockets.
 
 ## Batch prior
 

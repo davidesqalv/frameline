@@ -5,14 +5,16 @@ local LrPrefs = import 'LrPrefs'
 
 local M = {}
 
-M.version = '0.3.24'   -- kept in step with Info.lua by bump.sh
+M.version = '0.3.25'   -- kept in step with Info.lua by bump.sh
 
 -- border: percent of the image around the picture; positive shows film
 -- border, negative cuts into the picture. Chosen by name (borderSteps),
 -- stored as the number so old values and fine-tuning still work. The last
--- step, sprockets, is not a percentage: the frame's long sides get a
--- thin margin (filmMargin) and the short sides grow until the whole
--- rectangle is 9:8, sprocket holes in. Its stored number is a marker.
+-- step, sprockets, is not a percentage: on scans that show sprocket holes
+-- the sides along the holes end just past them, the other two get a thin
+-- margin (filmMargin); scans without holes keep a thin border. 9:8 is the
+-- fallback rectangle when holes cannot be seen (converted scans). Its
+-- stored number is a marker.
 M.defaults = {
     border = 0.5,
     format = '35mm',

@@ -298,6 +298,8 @@ LrTasks.startAsyncTask(function()
     -- avail: clean border available outside each edge, L/T/R/B, fraction of the image.
     -- film: how far the film itself goes on outside each edge (sprocket
     -- holes and all), L/T/R/B, fraction of the image.
+    -- holes: how far past each edge a row of sprocket holes reaches (its
+    -- outer end), L/T/R/B, fraction of the image; 0 = no holes seen.
     local function fourOf(field)
         local v = {}
         for x in (field or ''):gmatch('[^/]+') do v[#v + 1] = math.max(0, tonumber(x) or 0) end
@@ -306,8 +308,8 @@ LrTasks.startAsyncTask(function()
     local crops = {}
     local csv = LrPathUtils.child(tmp, 'results.csv')
     for line in io.lines(csv) do
-        local i, l, t, r, b, status, sides, angle, avail, film =
-            line:match('^(%d+),([%d%.%-]+),([%d%.%-]+),([%d%.%-]+),([%d%.%-]+),(%a+),?([%a%-/]*),?([%d%.%-]*),?([%d%./%-]*),?([%d%./%-]*)')
+        local i, l, t, r, b, status, sides, angle, avail, film, holes =
+            line:match('^(%d+),([%d%.%-]+),([%d%.%-]+),([%d%.%-]+),([%d%.%-]+),(%a+),?([%a%-/]*),?([%d%.%-]*),?([%d%./%-]*),?([%d%./%-]*),?([%d%./%-]*)')
         if i then
             crops[tonumber(i)] = { l = tonumber(l), t = tonumber(t),
                                    r = tonumber(r), b = tonumber(b),
@@ -316,7 +318,8 @@ LrTasks.startAsyncTask(function()
                                    sides = sides or '',
                                    angle = tonumber(angle) or 0,
                                    avail = fourOf(avail),
-                                   film = fourOf(film) }
+                                   film = fourOf(film),
+                                   holes = (holes and holes ~= '') and fourOf(holes) or nil }
             log('result %s: %s', i, line)
         end
     end
@@ -332,16 +335,16 @@ LrTasks.startAsyncTask(function()
             local c = crops[i]
             if c and c.ok then
                 c.aspect = Prefs.aspectFor(prefs.format)
-                local crop, note, trimmed = Frame.cropFor(c, prefs.border, prefs.straighten, Frame.dimensions(photo), c.aspect, Frame.orientation(photo))
+                local crop, note, info = Frame.cropFor(c, prefs.border, prefs.straighten, Frame.dimensions(photo), c.aspect, Frame.orientation(photo))
                 photo:applyDevelopSettings(crop, 'Frameline')
-                Frame.store(photo, c, c.sides, c.check and 'check' or 'ok', prefs.border, prefs.straighten, note or trimmed)
+                Frame.store(photo, c, c.sides, c.check and 'check' or 'ok', prefs.border, prefs.straighten, note or info)
                 cropped = cropped + 1
                 if note then
                     noRoom[#noRoom + 1] = photo
                     log('photo %d: %s', i, note)
                 else
                     fitted[#fitted + 1] = photo
-                    if trimmed then log('photo %d: %s', i, trimmed) end
+                    if info then log('photo %d: %s', i, info) end
                 end
                 if c.check then
                     flagged[#flagged + 1] = photo

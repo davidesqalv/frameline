@@ -34,13 +34,14 @@ positives, dark and bright frames, a tilted one) before and after a change
 and compare.
 
 For each folder it prints one line per image
-(`name,left,top,right,bottom,status,sides,angle,avail,film`; margins are 0-1
+(`name,left,top,right,bottom,status,sides,angle,avail,film,holes`; margins are 0-1
 fractions measured inward from each edge; status is `ok`, `check` or `skip`;
 sides says how each edge was found, e.g. `run/run/inferred/run`; angle is
 the frame tilt in degrees, clockwise on screen positive (0 when the four
 sides disagree); avail is the clean border available outside each edge,
 L/T/R/B; film is how far the film itself goes on outside each edge, sprocket
-holes and all), writes `results.csv` next to the images, and opens
+holes and all; holes is how far past each edge a row of sprocket holes
+reaches, with a little clean rebate beyond it, 0 where none was seen), writes `results.csv` next to the images, and opens
 `_frameline_previews/` inside your folder, which holds, per folder:
 
 - `NAME.jpg`: the scan with the crop drawn on it (green box, border dimmed;

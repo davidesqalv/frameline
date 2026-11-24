@@ -82,7 +82,7 @@ How much of the film border to keep around the picture:
 | **Thin border** (default) | A thin line of film border, 0.5% |
 | Wide border | 1.2% of border |
 | Chonk border | 2.5% of border |
-| Sprockets | The frame plus the sprocket holes, cropped to 9:8. Needs a scan that shows the whole strip; if the scan cuts one row of holes, that side stops where the film ends and the other keeps its full row. |
+| Sprockets | The frame plus the sprocket holes, wherever the scan shows them: each side ends just past its row of holes, or where the film ends if the scan cuts the row. Scans without holes keep a thin border, so it can stay on for every roll. |
 
 Percentages are of the photo's width or height. Opposite sides get the same
 border, so the picture stays centred. A side never shows more

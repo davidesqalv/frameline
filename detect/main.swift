@@ -94,6 +94,10 @@ struct Params {
     var sprocketMinHoles = 4        // a line through the sprocket row crosses at least this many whole holes
     var sprocketPitchTol = 0.25     // ...evenly spaced: every hole-to-hole step within this fraction of the median step
     var sprocketRowShare = 0.6      // a gap is a sprocket row when at least this share of its lines are
+    var holeGapMaxMm = 2.5          // a frame's sprocket row begins within this many mm of its edge (nominally ~0.7)
+    var holeRowMinMm = 1.0          // ...and shows at least this much of the holes' 2.8 mm height
+    var holeBridge = 3              // lines inside a row that may fail the hole test (rounded hole ends, dust)
+    var holeMarginMm = 0.3          // reported reach includes half the clean rebate beyond the holes, at most this (mm)
     var peelInset = 3               // lines skipped inside the film outline before the second pass
     var peelBand = 4                // lines sampled just inside the outline to see the rebate ring
     var peelBandUni: Float = 0.6    // ...which may carry edge printing and frame numbers, so this uniform is enough
@@ -118,6 +122,9 @@ struct SideDebug {
     var filmEnd: Int? = nil         // the line (from the rim) where the film ends; nil = not known
     var runStart = 0                // where the border run began (from the rim), to re-measure avail
     var toneLines: [Bool] = []      // per line from the rim (to the search limit): mostly border tone, i.e. film
+    var holeLines: [Bool] = []      // per line from the rim (to the search limit): crosses a row of sprocket holes
+    var cleanLines: [Bool] = []     // per line from the rim (to the search limit): uniform border tone, clean rebate
+    var holes: Double = 0           // how far past the edge the sprocket holes reach, plus a little clean rebate beyond, fraction; 0 = none
 }
 
 struct DebugInfo {
@@ -787,6 +794,10 @@ func peel(_ g: Gray, outer a: inout Analysis, params p: Params, dump: Bool) -> A
         b.sides[k].avail *= Double(nSub[k]) / Double(nFull[k])
         // the film ends where the rebate begins inside the outline, or at the scan's edge where none was seen
         b.sides[k].filmEnd = measured.contains(k) ? start[k] : 0
+        // per-line records counted from the whole image's rim
+        b.sides[k].toneLines = [Bool](repeating: false, count: offset[k]) + b.sides[k].toneLines
+        b.sides[k].holeLines = [Bool](repeating: false, count: offset[k]) + b.sides[k].holeLines
+        b.sides[k].cleanLines = [Bool](repeating: false, count: offset[k]) + b.sides[k].cleanLines
     }
     b.w = w; b.h = h
     b.dbg.w = w; b.dbg.h = h
@@ -890,6 +901,11 @@ func analyzeGray(_ g: Gray, params: Params, dump: Bool = false) -> Analysis {
         if let lv = level {
             let limit = min(s.n, Int(Double(s.n) * params.maxBorder))
             d.toneLines = (0..<limit).map { abs(lineProfile(s, $0, tol: params.borderTol).med - lv) <= params.levelTol }
+            d.holeLines = (0..<limit).map { sprocketLine(s, $0, level: lv, p: params) }
+            d.cleanLines = (0..<limit).map {
+                let (med, uni) = lineProfile(s, $0, tol: params.borderTol)
+                return uni >= params.uniformMin && abs(med - lv) <= params.levelTol
+            }
         }
         res.append(d)
     }
@@ -1188,6 +1204,52 @@ func finish(_ a: Analysis, params: Params, prior: [Double?]) -> (Detection?, Deb
             res[i].film = 0
         }
     }
+    // The sprocket holes outside each edge: walking out from the edge as
+    // finally placed, past the rebate (the row begins within holeGapMaxMm),
+    // through the lines that cross a row of holes (a few failing lines
+    // bridged), to the row's outer end, then past the holes' rounded ends to
+    // the first clean rebate line. The reach reported adds half of that
+    // clean rebate, at most holeMarginMm, so a crop there shows whole holes
+    // and stops short of edge printing that follows. Millimetres come from
+    // the frame's extent across the film, which is 24 mm on every 135
+    // format. A row the scan cuts runs to the rim; the plug-in then stops at
+    // the film's end.
+    let edgeOf = { (k: Int) -> Int in res[k].edge ?? 0 }
+    for i in 0..<4 {
+        guard let e = res[i].edge, e > 0, e <= res[i].holeLines.count else { continue }
+        let n = i == 0 || i == 2 ? w : h
+        let across = i == 0 || i == 2 ? w - edgeOf(0) - edgeOf(2) : h - edgeOf(1) - edgeOf(3)
+        let pxPerMm = Double(across) / 24
+        guard pxPerMm > 0 else { continue }
+        let hl = res[i].holeLines
+        var k = e - 1
+        while k >= 0, !hl[k], Double(e - 1 - k) <= params.holeGapMaxMm * pxPerMm { k -= 1 }
+        guard k >= 0, hl[k] else { continue }
+        let inner = k
+        var outer = k, miss = 0
+        while k >= 0 {
+            if hl[k] { outer = k; miss = 0 } else { miss += 1; if miss > params.holeBridge { break } }
+            k -= 1
+        }
+        guard Double(inner - outer + 1) >= params.holeRowMinMm * pxPerMm else { continue }
+        let clean = res[i].cleanLines
+        var end = outer
+        k = outer - 1
+        var tip = 0
+        while k >= 0, tip <= params.holeBridge, !clean[k] { k -= 1; tip += 1 }
+        if k < 0 {
+            end = 0                         // the row runs to the rim: cut by the scan
+        } else if clean[k] {
+            // half the clean strip, so the crop sits midway between the holes
+            // and whatever follows (edge printing whose thin tops still pass
+            // as clean, the film's edge), and never more than the margin
+            let cap = params.holeMarginMm * pxPerMm
+            var c = 0
+            while k - c >= 0, clean[k - c], Double(c) < 2 * cap { c += 1 }
+            end = k + 1 - min(c / 2, Int(cap))
+        }
+        res[i].holes = Double(e - end) / Double(n)
+    }
     // a rebate ring seen but no frame confirmed inside it matters when the
     // first pass kept little of the scan (the film's outline on a full-border
     // scan); a frame that fills the scan is the frame
@@ -1461,11 +1523,13 @@ for (i, name) in jpgs.enumerated() {
     let avail = dbg.sides.map { String(format: "%.4f", $0.avail) }.joined(separator: "/")
     // 10th column: how far the film itself goes on outside each edge, L/T/R/B, fraction of the image
     let film = dbg.sides.map { String(format: "%.4f", $0.film) }.joined(separator: "/")
+    // 11th column: how far past each edge the sprocket holes reach (outer end of the row), L/T/R/B, fraction; 0 = none seen
+    let holes = dbg.sides.map { String(format: "%.4f", $0.holes) }.joined(separator: "/")
     let line: String
     if let d = det {
-        line = "\(index),\(f5(d.l)),\(f5(d.t)),\(f5(d.r)),\(f5(d.b)),\(dbg.check.isEmpty ? "ok" : "check"),\(sides),\(String(format: "%.2f", dbg.angle)),\(avail),\(film)"
+        line = "\(index),\(f5(d.l)),\(f5(d.t)),\(f5(d.r)),\(f5(d.b)),\(dbg.check.isEmpty ? "ok" : "check"),\(sides),\(String(format: "%.2f", dbg.angle)),\(avail),\(film),\(holes)"
     } else {
-        line = "\(index),0,0,0,0,skip,\(sides),0,0,0"
+        line = "\(index),0,0,0,0,skip,\(sides),0,0,0,0"
     }
     lines.append(line)
     print(line)
@@ -1480,7 +1544,7 @@ for (i, name) in jpgs.enumerated() {
         print(out)
         for (name, sd) in zip(["L", "T", "R", "B"], dbg.sides) {
             let e = sd.edge.map(String.init) ?? "none"
-            print("      \(name)=\(e) \(sd.method) snap \(String(format: "%.2f", sd.snap)) avail \(String(format: "%.3f", sd.avail)) film \(String(format: "%.3f", sd.film))  runs: \(sd.runs)")
+            print("      \(name)=\(e) \(sd.method) snap \(String(format: "%.2f", sd.snap)) avail \(String(format: "%.3f", sd.avail)) film \(String(format: "%.3f", sd.film)) holes \(String(format: "%.3f", sd.holes))  runs: \(sd.runs)")
         }
         if params.borders > 0, let d = det {
             let fb = bordersRect(d, film: dbg.sides.map { $0.film }, ratio: params.borders, w: dbg.w, h: dbg.h)

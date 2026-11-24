@@ -20,11 +20,10 @@ M.HOLDER_TOLERANCE = 0.4
 -- Sprockets: when the 9:8 rectangle does not fit centred, it may slide this
 -- much (fraction of the axis) toward the side that has film to spare.
 M.SPROCKET_SHIFT = 0.015
--- Sprockets cut short: when the scan ends inside the sprocket row on one
--- side, that side stops where the film ends and the other keeps its full
--- row, as long as both show at least this much film (mm past the frame).
--- On 35mm the holes begin about 0.5 mm past the frame and are 2.8 mm tall,
--- so 1.8 mm keeps about half of each hole.
+-- Sprockets: each sprocket side shows at least this much film past the
+-- frame (mm), or the scan does not count as showing its holes. On 35mm the
+-- holes begin about 0.5 mm past the frame and are 2.8 mm tall, so 1.8 mm
+-- keeps about half of each hole (a row the scan cuts).
 M.SPROCKET_MIN_MM = 1.8
 
 -- True when the photo already has a crop (or straighten angle) applied.
@@ -66,10 +65,12 @@ function M.toFileSpace(edges, orientation)
     local m = ORIENT[orientation or 'AB'] or ORIENT.AB
     local a = edges.avail or {}
     local f = edges.film or {}
+    local h = edges.holes
     return { l = edges[m.l], t = edges[m.t], r = edges[m.r], b = edges[m.b],
              angle = edges.angle, aspect = edges.aspect, borders = edges.borders,
              avail = { l = a[m.l] or 0, t = a[m.t] or 0, r = a[m.r] or 0, b = a[m.b] or 0 },
-             film = { l = f[m.l] or 0, t = f[m.t] or 0, r = f[m.r] or 0, b = f[m.b] or 0 } }
+             film = { l = f[m.l] or 0, t = f[m.t] or 0, r = f[m.r] or 0, b = f[m.b] or 0 },
+             holes = h and { l = h[m.l] or 0, t = h[m.t] or 0, r = h[m.r] or 0, b = h[m.b] or 0 } or nil }
 end
 
 function M.orientation(photo)
@@ -106,8 +107,10 @@ end
 -- edges: the detected frame edges as margins (0-1) measured inward from
 -- each side of the image, before any border offset, plus .angle (degrees),
 -- .avail = { l, t, r, b } (clean border available outside each edge,
--- fraction) and .film = { l, t, r, b } (how far the film itself goes on
--- outside each edge, sprocket holes and all, fraction).
+-- fraction), .film = { l, t, r, b } (how far the film itself goes on
+-- outside each edge, sprocket holes and all, fraction) and .holes =
+-- { l, t, r, b } (how far past each edge the row of sprocket holes reaches,
+-- 0 = none seen; nil for photos detected before holes were looked for).
 -- border: percent of the image to show around the picture (negative cuts
 -- in), or the film borders marker (see FLPrefs.borderSteps).
 -- straighten: apply the tilt; needs dims = { width, height } of the photo.
@@ -115,9 +118,10 @@ end
 -- (0 = free, as detected); edges.aspect overrides it when set.
 -- orientation: how the photo is displayed ('AB', 'BC', 'CD', 'DA'); the
 -- edges are as detected on the displayed preview and are mapped to the file.
--- Returns the develop settings; second, nil or a sentence saying why
--- sprockets were asked for but could not be shown; third, nil or a sentence
--- saying the sprockets are shown but cut short where the scan's film ends.
+-- Returns the develop settings; with Sprockets also note (nil, or why there
+-- was no room, older photos only), info (nil, or a sentence for the
+-- summary) and kind ('holes', 'cut' when the scan cuts a row, 'plain' when
+-- it shows no holes and keeps a thin border).
 function M.cropFor(edges, border, straighten, dims, aspect, orientation)
     edges = M.toFileSpace(edges, orientation)
     local avail, film = edges.avail or {}, edges.film or {}
@@ -198,70 +202,127 @@ function M.cropFor(edges, border, straighten, dims, aspect, orientation)
     -- percent. Keep it, and let Lightroom rotate that rectangle in place.
     local wf, hf = keepShape((1 - l - r) * W, (1 - t - b) * H)
 
-    -- Sprockets: keep the frame's long side (with its hairline), grow the
-    -- short one until the whole rectangle has the ratio, the picture staying
-    -- centred. Only when the film really goes that far on both growing
-    -- sides: the scan's edge, the holder or the light table must stay out.
-    -- Where the film runs to the scan's edge there is no ragged film edge to
-    -- keep clear of. When it does not fit centred, first the hairline goes
-    -- (the short sides then grow a little less), then the rectangle may
-    -- slide a little toward the side with room; only then is there no room,
-    -- and the reason says, in millimetres of film, how far the crop would
-    -- reach past the frame and how far the film goes.
-    local note, trimmed
+    -- Sprockets. Where the detector saw a row of sprocket holes on both
+    -- sides of one axis (edges.holes: how far past each edge the row reaches,
+    -- with a little clean rebate beyond it), each of those sides ends just
+    -- past its own row, short of any edge printing; a row the scan cuts stops where the film ends
+    -- (no ragged edge to keep clear of when the film runs off the scan).
+    -- The other two sides keep a hairline. The picture sits where the holes
+    -- put it, centred or not. Without holes on both sides, the 9:8 rectangle
+    -- of old is tried (converted scans hide their holes in the black
+    -- rebate), centred on the frame, only when the film really goes that far
+    -- on both growing sides, first with the hairline, then without, then
+    -- sliding a little toward the side with room. Otherwise the scan is not a
+    -- sprocket scan and keeps a thin border, quietly. Photos detected before
+    -- holes were reported (edges.holes nil) keep the older behaviour: a
+    -- cut-short fallback, else "no room" and its collection.
+    -- Returns, besides the crop: note (legacy no room), info (a sentence for
+    -- the summary) and kind ('holes', 'cut', 'plain' or nil).
+    local note, info, kind
     if B > 0 and wf > 0 and hf > 0 then
         local sa = math.abs(math.sin(math.rad(angle)))
         local frameLong = math.max((1 - edges.l - edges.r) * W, (1 - edges.t - edges.b) * H)
         local pxPerMm = frameLong / 36
-        -- film left over on one side after the crop's reach past the frame edge (negative = short)
-        local function room(edgeIn, filmOut, cropOut, slackPx, n)
-            local reach = edgeIn - cropOut + slackPx / n
-            local hair = (filmOut >= edgeIn - 0.0005) and 0 or 0.003
-            return filmOut - (reach + hair), reach + hair
-        end
+        local function hair(edgeIn, filmOut) return (filmOut >= edgeIn - 0.0005) and 0 or 0.003 end
+        local holes = edges.holes
+        local done = false
         local fit, short
-        for _, want in ipairs({ Prefs.filmMargin, 0 }) do
-            local l2, t2, r2, b2 = rectFor(want)
+        if holes then
+            local l2, t2, r2, b2 = rectFor(Prefs.filmMargin)
             local cx2, cy2 = (l2 + 1 - r2) / 2, (t2 + 1 - b2) / 2
             local wf2, hf2 = keepShape((1 - l2 - r2) * W, (1 - t2 - b2) * H)
-            local nw, nh = wf2, hf2
-            if wf2 >= hf2 then nh = wf2 / B else nw = hf2 / B end
-            local room1, room2, reach1, reach2, film1, film2, n1
-            if nh > hf2 then
-                local slack = nw * sa / 2
-                room1, reach1 = room(edges.t, film.t or 0, cy2 - nh / 2 / H, slack, H)
-                room2, reach2 = room(edges.b, film.b or 0, 1 - (cy2 + nh / 2 / H), slack, H)
-                film1, film2, n1 = film.t or 0, film.b or 0, H
-            elseif nw > wf2 then
-                local slack = nh * sa / 2
-                room1, reach1 = room(edges.l, film.l or 0, cx2 - nw / 2 / W, slack, W)
-                room2, reach2 = room(edges.r, film.r or 0, 1 - (cx2 + nw / 2 / W), slack, W)
-                film1, film2, n1 = film.l or 0, film.r or 0, W
-            else
-                room1, room2, reach1, reach2, film1, film2, n1 = 0, 0, 0, 0, 0, 0, 1
-            end
-            -- one side short: slide toward the other, when it has that much to spare
-            local shift = 0
-            if room1 < 0 and -room1 <= M.SPROCKET_SHIFT and room2 + room1 >= 0 then
-                shift = -room1; room2 = room2 + room1; room1 = 0
-            elseif room2 < 0 and -room2 <= M.SPROCKET_SHIFT and room1 + room2 >= 0 then
-                shift = room2; room1 = room1 + room2; room2 = 0
-            end
-            if room1 >= 0 and room2 >= 0 then
-                fit = { l2, t2, r2, b2, nw, nh, shift, nh > hf2 }
-                break
-            end
-            if room1 < room2 then
-                short = { reach1 * n1 / pxPerMm, film1 * n1 / pxPerMm }
-            else
-                short = { reach2 * n1 / pxPerMm, film2 * n1 / pxPerMm }
+            local v = (holes.t or 0) > 0 and (holes.b or 0) > 0
+            local hz = (holes.l or 0) > 0 and (holes.r or 0) > 0
+            if v and hz then v = wf2 >= hf2; hz = not v end
+            if v or hz then
+                local n = v and H or W
+                local e1, e2 = v and edges.t or edges.l, v and edges.b or edges.r
+                local f1, f2 = (v and film.t or film.l) or 0, (v and film.b or film.r) or 0
+                local h1, h2 = v and holes.t or holes.l, v and holes.b or holes.r
+                -- the frame across the film is 24 mm on every 135 format
+                local mm = (1 - e1 - e2) * n / 24
+                local slack = (v and wf2 or hf2) * sa / 2
+                -- the reach the detector reports already takes in a little clean rebate past the holes
+                local function marginOf(e, f, h)
+                    return math.max(0, e - h, e - f + hair(e, f) + slack / n)
+                end
+                local m1, m2 = marginOf(e1, f1, h1), marginOf(e2, f2, h2)
+                local shown1, shown2 = (e1 - m1) * n / mm, (e2 - m2) * n / mm
+                if mm > 0 and math.min(shown1, shown2) >= M.SPROCKET_MIN_MM then
+                    if v then
+                        cx, cy, wf, hf = cx2, (m1 + 1 - m2) / 2, wf2, (1 - m1 - m2) * H
+                    else
+                        cx, cy, wf, hf = (m1 + 1 - m2) / 2, cy2, (1 - m1 - m2) * W, hf2
+                    end
+                    -- a row that runs to the film's end was cut by the scan
+                    local cut1, cut2 = h1 >= f1 - 0.002, h2 >= f2 - 0.002
+                    if cut1 or cut2 then
+                        kind = 'cut'
+                        info = string.format(
+                            'The scan cuts the sprocket holes on one side, so that side stops where the film ends, %.1f mm past the frame.',
+                            cut1 and shown1 or shown2)
+                    else
+                        kind = 'holes'
+                    end
+                    done = true
+                end
             end
         end
-        if fit then
+        if not done then
+            -- film left over on one side after the crop's reach past the frame edge (negative = short)
+            local function room(edgeIn, filmOut, cropOut, slackPx, n)
+                local reach = edgeIn - cropOut + slackPx / n
+                return filmOut - (reach + hair(edgeIn, filmOut)), reach + hair(edgeIn, filmOut)
+            end
+            for _, want in ipairs({ Prefs.filmMargin, 0 }) do
+                local l2, t2, r2, b2 = rectFor(want)
+                local cx2, cy2 = (l2 + 1 - r2) / 2, (t2 + 1 - b2) / 2
+                local wf2, hf2 = keepShape((1 - l2 - r2) * W, (1 - t2 - b2) * H)
+                local nw, nh = wf2, hf2
+                if wf2 >= hf2 then nh = wf2 / B else nw = hf2 / B end
+                local room1, room2, reach1, reach2, film1, film2, n1
+                if nh > hf2 then
+                    local slack = nw * sa / 2
+                    room1, reach1 = room(edges.t, film.t or 0, cy2 - nh / 2 / H, slack, H)
+                    room2, reach2 = room(edges.b, film.b or 0, 1 - (cy2 + nh / 2 / H), slack, H)
+                    film1, film2, n1 = film.t or 0, film.b or 0, H
+                elseif nw > wf2 then
+                    local slack = nh * sa / 2
+                    room1, reach1 = room(edges.l, film.l or 0, cx2 - nw / 2 / W, slack, W)
+                    room2, reach2 = room(edges.r, film.r or 0, 1 - (cx2 + nw / 2 / W), slack, W)
+                    film1, film2, n1 = film.l or 0, film.r or 0, W
+                else
+                    room1, room2, reach1, reach2, film1, film2, n1 = 0, 0, 0, 0, 0, 0, 1
+                end
+                -- one side short: slide toward the other, when it has that much to spare
+                local shift = 0
+                if room1 < 0 and -room1 <= M.SPROCKET_SHIFT and room2 + room1 >= 0 then
+                    shift = -room1; room2 = room2 + room1; room1 = 0
+                elseif room2 < 0 and -room2 <= M.SPROCKET_SHIFT and room1 + room2 >= 0 then
+                    shift = room2; room1 = room1 + room2; room2 = 0
+                end
+                if room1 >= 0 and room2 >= 0 then
+                    fit = { l2, t2, r2, b2, nw, nh, shift, nh > hf2 }
+                    break
+                end
+                if room1 < room2 then
+                    short = { reach1 * n1 / pxPerMm, film1 * n1 / pxPerMm }
+                else
+                    short = { reach2 * n1 / pxPerMm, film2 * n1 / pxPerMm }
+                end
+            end
+        end
+        if done then
+            -- placed from the holes above
+        elseif fit then
             l, t, r, b = fit[1], fit[2], fit[3], fit[4]
             wf, hf = fit[5], fit[6]
             cx, cy = (l + 1 - r) / 2, (t + 1 - b) / 2
             if fit[8] then cy = cy + fit[7] else cx = cx + fit[7] end
+            kind = 'holes'
+        elseif holes then
+            kind = 'plain'
+            info = 'No sprocket holes on both sides of this scan, so it keeps a thin border.'
         else
             -- Still no fit: the scan (or the holder) ends inside the sprocket
             -- row on one side. Then each short side grows as far as its own
@@ -283,7 +344,6 @@ function M.cropFor(edges, border, straighten, dims, aspect, orientation)
                 c, n, e1, e2, f1, f2 = cx2, W, edges.l, edges.r, film.l or 0, film.r or 0
                 slack, full = hf2 * sa / 2, hf2 / B / W / 2
             end
-            local function hair(edgeIn, filmOut) return (filmOut >= edgeIn - 0.0005) and 0 or 0.003 end
             -- each side's crop margin: the 9:8 one, or nearer the frame where the film ends first
             local m1 = math.max(c - full, e1 - f1 + hair(e1, f1) + slack / n)
             local m2 = math.max(1 - c - full, e2 - f2 + hair(e2, f2) + slack / n)
@@ -295,7 +355,8 @@ function M.cropFor(edges, border, straighten, dims, aspect, orientation)
                 else
                     cx, cy, wf, hf = (m1 + 1 - m2) / 2, cy2, extent * W, hf2
                 end
-                trimmed = string.format(
+                kind = 'cut'
+                info = string.format(
                     'Sprockets cut short on one side: the film in this scan stops %.1f mm past the frame there; the other side shows %.1f mm.',
                     math.min(shown1, shown2), math.max(shown1, shown2))
             else
@@ -309,7 +370,7 @@ function M.cropFor(edges, border, straighten, dims, aspect, orientation)
     if angle == 0 then
         local hw, hh = wf / W / 2, hf / H / 2
         return { CropLeft = math.max(0, cx - hw), CropTop = math.max(0, cy - hh),
-                 CropRight = math.min(1, cx + hw), CropBottom = math.min(1, cy + hh), CropAngle = 0 }, note, trimmed
+                 CropRight = math.min(1, cx + hw), CropBottom = math.min(1, cy + hh), CropAngle = 0 }, note, info, kind
     end
     -- Under a straighten angle Lightroom reads the crop fractions against a
     -- reference that is narrower and taller than the image (measured from
@@ -330,16 +391,22 @@ function M.cropFor(edges, border, straighten, dims, aspect, orientation)
         CropLeft = math.max(0, ucx - hw), CropTop = math.max(0, ucy - hh),
         CropRight = math.min(1, ucx + hw), CropBottom = math.min(1, ucy + hh),
         CropAngle = M.ANGLE_SIGN * angle,
-    }, note, trimmed
+    }, note, info, kind
 end
 
--- l,t,r,b,angle,availL..B,aspect,filmL..B,borders (older photos stop early)
+-- l,t,r,b,angle,availL..B,aspect,filmL..B,borders,holesL..B (older photos
+-- stop early; without the holes they keep the older sprocket behaviour)
 function M.edgesToString(e)
     local a = e.avail or {}
     local f = e.film or {}
-    return string.format('%.5f,%.5f,%.5f,%.5f,%.2f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f',
+    local s = string.format('%.5f,%.5f,%.5f,%.5f,%.2f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f',
         e.l, e.t, e.r, e.b, e.angle or 0, a.l or 0, a.t or 0, a.r or 0, a.b or 0, e.aspect or 0,
         f.l or 0, f.t or 0, f.r or 0, f.b or 0, e.borders or 0)
+    local h = e.holes
+    if h then
+        s = s .. string.format(',%.4f,%.4f,%.4f,%.4f', h.l or 0, h.t or 0, h.r or 0, h.b or 0)
+    end
+    return s
 end
 
 function M.edgesFromString(s)
@@ -351,7 +418,8 @@ function M.edgesFromString(s)
              avail = { l = parts[6] or 0, t = parts[7] or 0, r = parts[8] or 0, b = parts[9] or 0 },
              aspect = parts[10] or 0,
              film = { l = parts[11] or 0, t = parts[12] or 0, r = parts[13] or 0, b = parts[14] or 0 },
-             borders = parts[15] or 0 }
+             borders = parts[15] or 0,
+             holes = #parts >= 19 and { l = parts[16], t = parts[17], r = parts[18], b = parts[19] } or nil }
 end
 
 -- What Frameline stored on a photo the last time it cropped it, or nil.

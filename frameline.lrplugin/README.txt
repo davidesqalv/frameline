@@ -42,10 +42,10 @@ Crop edge
   Thin border    0.5% of film border (the default)
   Wide border    1.2%
   Chonk border   2.5%
-  Sprockets      the frame plus the sprocket holes, cropped 9:8; needs a
-                 scan that shows the whole strip. If the scan cuts one row
-                 of holes, that side stops where the film ends and the
-                 other side keeps its full row.
+  Sprockets      the frame plus the sprocket holes, wherever the scan
+                 shows them: each side ends just past its row of holes, or
+                 where the film ends if the scan cuts the row. Scans
+                 without holes keep a thin border.
 
   Opposite sides get the same border, and a side never shows more border
   than the scan has there.
