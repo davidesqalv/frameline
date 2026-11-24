@@ -231,7 +231,11 @@ tilted 0.8 degrees (0.79 and 0.78).
 
 Edge to edge sits 0.2% inside the detected edges, so that no border shows:
 the edges lie partway through the fade from border to picture, and a
-frame's opposite sides are rarely parallel to better than 0.1 degree.
+frame's opposite sides are rarely parallel to better than 0.1 degree. Each
+side also clears its own fade: the detector measures, place by place along
+the edge, how far it is from the half-way point to nine tenths of the
+picture's level (`fade` in the CSV; 0.14% typically, 0.34% on a soft edge),
+and the crop goes that much further in on that side.
 
 The crop edge (Tighter ... Chonk border) is a percentage of the image shown
 around the frame, or cut into it. A side shows at most the clean border it

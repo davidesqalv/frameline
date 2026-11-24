@@ -304,6 +304,8 @@ LrTasks.startAsyncTask(function()
     -- holes and all), L/T/R/B, fraction of the image.
     -- holes: how far past each edge a row of sprocket holes reaches (its
     -- outer end), L/T/R/B, fraction of the image; 0 = no holes seen.
+    -- fade: how soft each edge is, from its half-way point to nine tenths of
+    -- the picture's level, L/T/R/B, fraction of the image.
     local function fourOf(field)
         local v = {}
         for x in (field or ''):gmatch('[^/]+') do v[#v + 1] = math.max(0, tonumber(x) or 0) end
@@ -312,8 +314,8 @@ LrTasks.startAsyncTask(function()
     local crops = {}
     local csv = LrPathUtils.child(tmp, 'results.csv')
     for line in io.lines(csv) do
-        local i, l, t, r, b, status, sides, angle, avail, film, holes =
-            line:match('^(%d+),([%d%.%-]+),([%d%.%-]+),([%d%.%-]+),([%d%.%-]+),(%a+),?([%a%-/]*),?([%d%.%-]*),?([%d%./%-]*),?([%d%./%-]*),?([%d%./%-]*)')
+        local i, l, t, r, b, status, sides, angle, avail, film, holes, fade =
+            line:match('^(%d+),([%d%.%-]+),([%d%.%-]+),([%d%.%-]+),([%d%.%-]+),(%a+),?([%a%-/]*),?([%d%.%-]*),?([%d%./%-]*),?([%d%./%-]*),?([%d%./%-]*),?([%d%./%-]*)')
         if i then
             crops[tonumber(i)] = { l = tonumber(l), t = tonumber(t),
                                    r = tonumber(r), b = tonumber(b),
@@ -323,7 +325,8 @@ LrTasks.startAsyncTask(function()
                                    angle = tonumber(angle) or 0,
                                    avail = fourOf(avail),
                                    film = fourOf(film),
-                                   holes = (holes and holes ~= '') and fourOf(holes) or nil }
+                                   holes = (holes and holes ~= '') and fourOf(holes) or nil,
+                                   fade = fourOf(fade) }
             log('result %s: %s', i, line)
         end
     end

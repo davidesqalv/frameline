@@ -138,6 +138,7 @@ struct SideDebug {
     var toneLines: [Bool] = []      // per line from the rim (to the search limit): mostly border tone, i.e. film
     var holeLines: [Bool] = []      // per line from the rim (to the search limit): crosses a row of sprocket holes
     var cleanLines: [Bool] = []     // per line from the rim (to the search limit): uniform border tone, clean rebate
+    var fade: Double = 0            // lines from the edge's half-way point to nine tenths of the picture's level
     var holeBacked = false          // the edge sits just past a row of sprocket holes: where a frame edge belongs
     var busyLines: [Bool] = []      // per line from the rim (to the search limit): not uniform (printing, holes, an edge)
     var holes: Double = 0           // how far past the edge the sprocket holes reach, plus a little clean rebate beyond, fraction; 0 = none
@@ -339,6 +340,41 @@ func crossingSlope(_ s: SideView, e: Int, span: Range<Int>, p: Params) -> Double
     guard slopes.count >= 6 else { return nil }
     slopes.sort()
     return slopes[slopes.count / 2]
+}
+
+/// How soft a frame edge is: the distance in lines from where its profile is
+/// half-way between border and picture to where it has reached nine tenths
+/// of the picture's level, the median over up to 32 places along the side
+/// (measured place by place, so a tilt does not smear it). An edge-to-edge
+/// crop has to sit that much further in to show no border. 0 when unknown.
+func edgeFade(_ s: SideView, e: Int, span: Range<Int>, p: Params) -> Double {
+    let reach = p.crossReach + 2, band = p.crossBand
+    guard e - reach >= 0, e + reach < s.n, span.count >= 16 * band else { return 0 }
+    let places = min(32, span.count / (2 * band + 1))
+    var fades: [Double] = []
+    for q in 0..<places {
+        let c = span.lowerBound + span.count * (2 * q + 1) / (2 * places)
+        guard c - band >= 0, c + band < s.len else { continue }
+        var prof = [Double](repeating: 0, count: 2 * reach + 1)
+        for d in -reach...reach {
+            var v: Float = 0
+            for j in (c - band)...(c + band) { v += s.lum(e + d, j) }
+            prof[d + reach] = Double(v) / Double(2 * band + 1)
+        }
+        let outer = prof[0..<3].reduce(0, +) / 3, inner = prof[(2 * reach - 2)...].reduce(0, +) / 3
+        guard abs(inner - outer) >= p.crossMinContrast else { continue }
+        func crossing(_ f: Double) -> Double? {
+            let t = outer + f * (inner - outer)
+            for i in 0..<(2 * reach) where (prof[i] - t) * (prof[i + 1] - t) <= 0 && prof[i] != prof[i + 1] {
+                return Double(i) + (t - prof[i]) / (prof[i + 1] - prof[i])
+            }
+            return nil
+        }
+        if let a = crossing(0.5), let b = crossing(0.9), b >= a { fades.append(b - a) }
+    }
+    guard fades.count >= 6 else { return 0 }
+    fades.sort()
+    return fades[fades.count / 2]
 }
 
 /// Tilt of one side's frame edge: the straight line through the most edge
@@ -1195,6 +1231,7 @@ func analyzeGray(_ g: Gray, params p0: Params, dump: Bool = false) -> Analysis {
             let (a, b) = (k == 0 || k == 2) ? (res[1].edge, res[3].edge) : (res[0].edge, res[2].edge)
             let lo = max(0, (a ?? lineStart[k]) - lineStart[k]) + params.crossBand + 4
             let hi = s.len - max(0, (b ?? lineEnd[k]) - lineEnd[k]) - params.crossBand - 4
+            if hi > lo { res[k].fade = edgeFade(s, e: e, span: lo..<hi, p: params) }
             var slope = fit.slope
             if hi > lo, let fine = crossingSlope(s, e: e, span: lo..<hi, p: params),
                abs(atan(fine) - atan(fit.slope)) * 180 / .pi <= params.crossMaxShift { slope = fine }
@@ -1820,11 +1857,13 @@ for (i, name) in jpgs.enumerated() {
     let film = dbg.sides.map { String(format: "%.4f", $0.film) }.joined(separator: "/")
     // 11th column: how far past each edge the sprocket holes reach (outer end of the row), L/T/R/B, fraction; 0 = none seen
     let holes = dbg.sides.map { String(format: "%.4f", $0.holes) }.joined(separator: "/")
+    // 12th column: how soft each edge is: from its half-way point to nine tenths of the picture's level, L/T/R/B, fraction
+    let fade = zip(dbg.sides, [dbg.w, dbg.h, dbg.w, dbg.h]).map { String(format: "%.4f", $0.fade / Double(max(1, $1))) }.joined(separator: "/")
     let line: String
     if let d = det {
-        line = "\(index),\(f5(d.l)),\(f5(d.t)),\(f5(d.r)),\(f5(d.b)),\(dbg.check.isEmpty ? "ok" : "check"),\(sides),\(String(format: "%.2f", dbg.angle)),\(avail),\(film),\(holes)"
+        line = "\(index),\(f5(d.l)),\(f5(d.t)),\(f5(d.r)),\(f5(d.b)),\(dbg.check.isEmpty ? "ok" : "check"),\(sides),\(String(format: "%.2f", dbg.angle)),\(avail),\(film),\(holes),\(fade)"
     } else {
-        line = "\(index),0,0,0,0,skip,\(sides),0,0,0,0"
+        line = "\(index),0,0,0,0,skip,\(sides),0,0,0,0,0"
     }
     lines.append(line)
     print(line)

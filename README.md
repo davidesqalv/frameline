@@ -78,7 +78,7 @@ How much of the film border to keep around the picture:
 |---|---|
 | Tighter | Cuts 0.6% into the picture |
 | Tight | Cuts 0.3% into the picture |
-| Edge to edge | No border showing: just inside the frame edge (0.2%) |
+| Edge to edge | No border showing: just inside the frame edge, past its fade |
 | **Thin border** (default) | A thin line of film border, 0.5% |
 | Wide border | 1.2% of border |
 | Chonk border | 2.5% of border |

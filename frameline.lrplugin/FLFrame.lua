@@ -19,7 +19,7 @@ M.ANGLE_SIGN = 1
 -- inside the detected edges, which lie partway through the fade from border
 -- to picture, and the frame's sides are never quite parallel (0.1 degree
 -- between opposite sides is usual, two pixels at each end).
-M.EDGE_INSET = 0.2
+M.EDGE_INSET = 0.2     -- plus, per side, the edge's measured fade (edges.fade)
 M.MIN_VISIBLE_BORDER = 0.4
 M.HOLDER_TOLERANCE = 0.4
 -- Sprockets: each sprocket side shows at least this much film past the
@@ -112,7 +112,9 @@ function M.toFileSpace(edges, orientation)
     local a = edges.avail or {}
     local f = edges.film or {}
     local h = edges.holes
-    return { l = edges[m.l], t = edges[m.t], r = edges[m.r], b = edges[m.b],
+    local d = edges.fade or {}
+    return { fade = { l = d[m.l] or 0, t = d[m.t] or 0, r = d[m.r] or 0, b = d[m.b] or 0 },
+             l = edges[m.l], t = edges[m.t], r = edges[m.r], b = edges[m.b],
              angle = edges.angle, aspect = edges.aspect, borders = edges.borders,
              avail = { l = a[m.l] or 0, t = a[m.t] or 0, r = a[m.r] or 0, b = a[m.b] or 0 },
              film = { l = f[m.l] or 0, t = f[m.t] or 0, r = f[m.r] or 0, b = f[m.b] or 0 },
@@ -242,8 +244,15 @@ function M.cropFor(edges, border, straighten, dims, aspect, orientation)
     -- sprockets: a hairline on the long sides, the short sides grow below
     local B = Prefs.bordersFor(border)
     local plain = border or 0
+    local edgeToEdge = plain == 0 and B == 0
     if plain == 0 then plain = -M.EDGE_INSET end
     local l, t, r, b = rectFor(B > 0 and Prefs.filmMargin or plain)
+    -- edge to edge: each side also clears its own edge's fade (a soft edge
+    -- takes half a percent to reach the picture's level)
+    if edgeToEdge then
+        local d = edges.fade
+        l, t, r, b = l + d.l, t + d.t, r + d.r, b + d.b
+    end
     local cx, cy = (l + 1 - r) / 2, (t + 1 - b) / 2
     -- The detected edges sit near the middle of a tilted edge's spread, so
     -- the measured size is already the frame's size to within half a
@@ -355,7 +364,10 @@ function M.edgesToString(e)
         h = h or {}
         s = s .. string.format(',%.4f,%.4f,%.4f,%.4f', h.l or 0, h.t or 0, h.r or 0, h.b or 0)
     end
-    if e.orient then s = s .. string.format(',%d', e.orient) end
+    if e.orient then
+        local d = e.fade or {}
+        s = s .. string.format(',%d,%.4f,%.4f,%.4f,%.4f', e.orient, d.l or 0, d.t or 0, d.r or 0, d.b or 0)
+    end
     return s
 end
 
@@ -370,7 +382,8 @@ function M.edgesFromString(s)
              film = { l = parts[11] or 0, t = parts[12] or 0, r = parts[13] or 0, b = parts[14] or 0 },
              borders = parts[15] or 0,
              holes = #parts >= 19 and { l = parts[16], t = parts[17], r = parts[18], b = parts[19] } or nil,
-             orient = parts[20] }
+             orient = parts[20],
+             fade = { l = parts[21] or 0, t = parts[22] or 0, r = parts[23] or 0, b = parts[24] or 0 } }
 end
 
 -- What Frameline stored on a photo the last time it cropped it, or nil.
