@@ -110,6 +110,45 @@ past the holder (where the side across shows a first run, from the rim,
 that is not the border tone, plus two lines for its soft edge). Only such
 sides: trimming every line moved frames that the full lines had right.
 
+## Converted scans
+
+A scan converted in Negative Lab Pro before Frameline runs is a positive:
+the holder comes out white, the rebate near black, and that rebate is far
+from even: on one Portra roll 7 to 58 around the frame, darkening slowly
+along each line. Run on the whole roll converted, 25 of 38 frames came out
+wrong; the same scans unconverted were right. What changed:
+
+- **The holder loses the vote.** A tone seen only as the first run at the
+  rim, with another run starting within 16 lines inside it on every side
+  where it shows, is a holder (or light table), never the film; another
+  tone is taken when there is one. The white holder showed the same tone
+  left and right while the rebate inside split into clusters.
+- **Right inside a holder the film begins.** On such a side the first run
+  after the holder (after a run under 6 lines, which is the holder's soft
+  edge) is a border candidate whatever its exact tone, when it lies on the
+  border's side of the holder.
+- **Converted mode.** A dark border (under 100) with a bright holder run on
+  two sides or more switches it on: the border tone may vary 2.5 times as
+  much, a run's head may drift 2.5 times as much, a line's uniformity is
+  judged in eight pieces (each pixel against its own piece's median, so a
+  slow gradient does not count against the line while holes and picture
+  detail still do), and a later run of a closer tone replaces the outer one
+  only when the outer one ramps. The Easy35 converted test scans switch it
+  on too and move by a line at most.
+- **Refine stays inside the run.** The 40% crossing never moves an edge
+  outward past where its border run began: a short run right inside a
+  bright holder handed the edge to the holder.
+- **An edge just past its holes.** A measured edge inside a row of sprocket
+  holes, or more than 1.4 mm past the row's inner end, ran into picture of
+  the rebate's tone or stopped on a hole: it becomes soft, and the frame's
+  shape places it.
+
+The converted roll now has 34 of 38 frames within 1% of the unconverted
+result; of the four left, three are flagged or near (1-2%), and one
+(DSC02798, top edge stopped on a faint step inside the rebate) is not.
+Cropping before converting, as Negative Lab Pro asks anyway, avoids all of
+this.
+
 ## Which side moves
 
 When the frame measures too wide or too tall for its shape, the whole
@@ -322,6 +361,12 @@ Portra 160 roll in a holder that cuts both the top row of holes and the
 KODAK PORTRA lettering under the bottom row, the crop runs to the scan's
 edge at both, lettering and frame number in; the summary says "The scan
 cuts the sprocket holes on one side, 2.3 mm past the frame."
+
+**A sprocket session.** In a run of three photos or more where at least
+half show their sprockets (holes seen, or a whole strip), the run is one
+holder, one roll: the others get Sprockets too, wherever both sides show
+1.8 mm of film. On the converted Portra roll the holes were seen on 20 of
+38 photos; the session gave the rest theirs.
 
 **No holes seen.** Converted scans hide their holes: after inversion they
 are as black as the rebate around them (the tulips, the Met and DSC09348

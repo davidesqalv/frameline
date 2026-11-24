@@ -326,6 +326,22 @@ LrTasks.startAsyncTask(function()
 
     local cropped, flagged, skipped, clean, noRoom, fitted = 0, {}, {}, {}, {}, {}
     local withSprockets = 0
+    -- Which photos show their sprockets. When at least half of a run of a
+    -- few photos do, the run is a sprocket session (one holder, one roll):
+    -- the rest get sprockets too where enough film shows, since a converted
+    -- scan can hide its holes in the black rebate.
+    local shows, showing, judged = {}, 0, 0
+    if prefs.sprockets and Prefs.bordersFor(prefs.border) == 0 then
+        for i, photo in ipairs(photos) do
+            local c = crops[i]
+            if c and c.ok then
+                judged = judged + 1
+                shows[i] = Frame.sprocketScan(c, Frame.dimensions(photo), Frame.orientation(photo))
+                if shows[i] then showing = showing + 1 end
+            end
+        end
+    end
+    local session = judged >= Frame.SESSION_MIN and showing >= judged * Frame.SESSION_SHARE
     catalog:withWriteAccessDo('Frameline', function()
         local set = catalog:createCollectionSet(COLLECTION_SET, nil, true)
         local lookColl = catalog:createCollection(COLLECTION_LOOK, set, true)
@@ -340,7 +356,7 @@ LrTasks.startAsyncTask(function()
                 local border = prefs.border
                 local crop, note, info, kind
                 -- a scan that shows its sprocket holes gets them, whatever the crop edge
-                if prefs.sprockets and Prefs.bordersFor(border) == 0 and Frame.sprocketScan(c, dims, orient) then
+                if prefs.sprockets and Prefs.bordersFor(border) == 0 and (shows[i] or session) then
                     local c2, n2, i2, k2 = Frame.cropFor(c, Prefs.SPROCKETS, prefs.straighten, dims, c.aspect, orient)
                     if k2 == 'holes' or k2 == 'cut' then
                         border, crop, note, info, kind = Prefs.SPROCKETS, c2, n2, i2, k2

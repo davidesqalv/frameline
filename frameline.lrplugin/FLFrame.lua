@@ -26,6 +26,10 @@ M.SPROCKET_MIN_MM = 1.8
 -- scan counts as a whole strip when the film goes on at least this far past
 -- both long sides (mm); the holes end about 3.3 mm out.
 M.STRIP_MIN_MM = 4.0
+-- A run of at least SESSION_MIN photos where at least SESSION_SHARE show
+-- their sprockets is a sprocket session: the others get them too.
+M.SESSION_MIN = 3
+M.SESSION_SHARE = 0.5
 
 -- True when a scan shows its sprockets, so that it gets them whatever the
 -- crop edge: the detector saw a row of holes on both sides of one axis, or

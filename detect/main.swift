@@ -93,9 +93,17 @@ struct Params {
     var sprocketUniMax: Float = 0.7 // a line through the sprocket holes is at most this uniform
     var sprocketMinHoles = 4        // a line through the sprocket row crosses at least this many whole holes
     var holderMargin = 2            // lines past a holder run also left off the lines across it (its soft edge)
+    var surroundGap = 16            // a holder run is followed by the film's run within this many lines (its soft edge between)
+    var holderEdgeRun = 6           // a run shorter than this right after a holder is its soft edge, not the rebate
+    var frameShare = 0.8            // before geometry, the frame spans about this share of the scan across the film
+    var convertedDarkMax: Float = 100 // a converted scan: border darker than this inside a bright holder...
+    var convertedTolScale: Float = 2.5 // ...lets the border tone vary this much more around the frame
+    var localUniform = false        // judge a line's uniformity in pieces (set for converted scans)
+    var localPieces = 8             // ...this many
     var sprocketPitchTol = 0.25     // ...evenly spaced: every hole-to-hole step within this fraction of the median step
     var sprocketRowShare = 0.6      // a gap is a sprocket row when at least this share of its lines are
     var holeGapMaxMm = 2.5          // a frame's sprocket row begins within this many mm of its edge (nominally ~0.7)
+    var holeFrameGapMaxMm = 1.4     // ...and a measured edge further than this past its holes ran into picture
     var holeRowMinMm = 1.0          // ...and shows at least this much of the holes' 2.8 mm height
     var holeBridge = 3              // lines inside a row that may fail the hole test (rounded hole ends, dust)
     var printGapMm = 2.0            // busy off-tone lines (edge printing, frame numbers) count as film over at most this (mm)
@@ -133,6 +141,8 @@ struct DebugInfo {
     var w = 0, h = 0
     var threshold: Float = 0
     var dark = true
+    var converted = false           // a converted scan inside a bright holder: wider border tone, local uniformity
+    var holeNote = ""               // sides whose edge did not sit just past their sprocket holes
     var level: Float = -1
     var aspect = 0.0
     var angle = 0.0                 // frame tilt in degrees, clockwise on screen positive
@@ -426,6 +436,31 @@ func lineStats(_ s: SideView, _ i: Int, tol: Float) -> (med: Float, uni: Float, 
     return (med, Float(n) / Float(vals.count), spread)
 }
 
+/// Median and uniformity with the line judged in pieces: a pixel counts as
+/// uniform when it lies within tol of its own piece's median, so a slow
+/// gradient along the line (a converted scan's rebate darkening toward one
+/// end) does not count against it, while picture detail and holes still do.
+func lineProfileLocal(_ s: SideView, _ i: Int, tol: Float, pieces: Int) -> (med: Float, uni: Float) {
+    var all = [Float](repeating: 0, count: s.len)
+    for j in 0..<s.len { all[j] = s.lum(i, j) }
+    let med = all.sorted()[s.len / 2]
+    let k = max(1, min(pieces, s.len / 8))
+    var n = 0
+    for q in 0..<k {
+        let a = q * s.len / k, b = (q + 1) * s.len / k
+        guard b > a else { continue }
+        let piece = all[a..<b].sorted()
+        let pm = piece[piece.count / 2]
+        for v in piece where abs(v - pm) <= tol { n += 1 }
+    }
+    return (med, Float(n) / Float(s.len))
+}
+
+/// lineProfile or lineProfileLocal, as the params say.
+func profile(_ s: SideView, _ i: Int, p: Params) -> (med: Float, uni: Float) {
+    p.localUniform ? lineProfileLocal(s, i, tol: p.borderTol, pieces: p.localPieces) : lineProfile(s, i, tol: p.borderTol)
+}
+
 func lineProfile(_ s: SideView, _ i: Int, tol: Float) -> (med: Float, uni: Float) {
     let t = lineStats(s, i, tol: tol)
     return (t.med, t.uni)
@@ -448,7 +483,7 @@ func uniformRuns(_ s: SideView, p: Params) -> [Run] {
             cur = nil
             continue
         }
-        let (med, uni) = lineProfile(s, i, tol: p.borderTol)
+        let (med, uni) = profile(s, i, p: p)
         let film = uni >= p.uniformMin
         if film, var c = cur, abs(med - c.level0) <= p.jumpTol {
             c.level = (c.level * Float(c.end - c.start) + med) / Float(c.end - c.start + 1)
@@ -485,15 +520,15 @@ func uniformRuns(_ s: SideView, p: Params) -> [Run] {
 /// (the holder shows on fewer sides, a flat sky on one). Ties go to the tone
 /// that lies inside another one, since the holder is never inside the border.
 func borderLevel(runs: [[Run]], sides: [SideView], p: Params) -> Float? {
-    struct Cluster { var level: Float; var count: Int; var sides: Set<Int>; var inner: Int }
+    struct Cluster { var level: Float; var count: Int; var sides: Set<Int>; var inner: Int; var surround: Bool }
     var clusters: [Cluster] = []
     for (si, (s, rs)) in zip(sides, runs).enumerated() {
         let startLimit = Int(Double(s.n) * p.borderStart)
         var k = 0
-        for r in rs where r.start <= startLimit {
+        for (idx, r) in rs.enumerated() where r.start <= startLimit {
             var ci = clusters.firstIndex { abs($0.level - r.level) <= p.levelTol }
             if ci == nil {
-                clusters.append(Cluster(level: r.level, count: 0, sides: [], inner: 0))
+                clusters.append(Cluster(level: r.level, count: 0, sides: [], inner: 0, surround: true))
                 ci = clusters.count - 1
             }
             var c = clusters[ci!]
@@ -501,11 +536,27 @@ func borderLevel(runs: [[Run]], sides: [SideView], p: Params) -> Float? {
             c.count += 1
             c.sides.insert(si)
             if k > 0 { c.inner += 1 }
+            if !holderRun(rs, idx, p: p) { c.surround = false }
             clusters[ci!] = c
             k += 1
         }
     }
-    return clusters.max { a, b in (a.sides.count, a.inner) < (b.sides.count, b.inner) }?.level
+    // A tone seen only as the first run at the rim, with another run right
+    // inside it on every side, is the holder (or light table) around the
+    // film, never the film: on a converted scan the white holder shows the
+    // same tone left and right while the near-black rebate inside it varies
+    // by forty levels around the frame and splits into clusters that each
+    // cover fewer sides. Another tone is taken when there is one.
+    let order = { (a: Cluster, b: Cluster) in (a.sides.count, a.inner) < (b.sides.count, b.inner) }
+    guard let best = clusters.max(by: order) else { return nil }
+    if best.surround, let film = clusters.filter({ !$0.surround }).max(by: order) { return film.level }
+    return best.level
+}
+
+/// The run at index i of a side is a holder: the first run, at the rim, with
+/// another run beginning right inside it.
+func holderRun(_ rs: [Run], _ i: Int, p: Params) -> Bool {
+    i == 0 && rs.count > 1 && rs[0].start <= 2 && rs[1].start - rs[0].end <= p.surroundGap
 }
 
 /// Tone range over a run's first lines (the last few excluded, where the
@@ -533,11 +584,29 @@ func headLevel(_ r: Run) -> Float {
 /// patch of picture further in.
 func chooseRun(_ runs: [Run], s: SideView, p: Params, level: Float) -> Run? {
     let startLimit = Int(Double(s.n) * p.borderStart)
-    let cands = runs.filter { $0.start <= startLimit && abs($0.level - level) <= p.levelTol }
+    var cands = runs.filter { $0.start <= startLimit && abs($0.level - level) <= p.levelTol }
+    // Right inside a holder (another tone at the rim, see holderRun) the
+    // film begins: that run is the rebate whatever its exact tone, when it
+    // lies on the border's side of the holder (a converted scan's near-black
+    // rebate varies by forty levels around the frame).
+    // (A short run first is the holder's soft edge, a tone between the two;
+    // the rebate is the next run, if it begins right after.)
+    if holderRun(runs, 0, p: p), abs(runs[0].level - level) > p.levelTol {
+        let h = runs[0]
+        var r = runs[1]
+        if r.end - r.start < p.holderEdgeRun, runs.count > 2, runs[2].start - r.end <= p.gapMax { r = runs[2] }
+        if r.start <= startLimit, (r.level - h.level) * (level - h.level) > 0,
+           abs(r.level - h.level) > p.levelTol {
+            cands.removeAll { $0.start < r.start }
+            if !cands.contains(where: { $0.start == r.start }) { cands.insert(r, at: 0) }
+        }
+    }
     guard var pick = cands.first else { return nil }
     for d in cands.dropFirst() {
         let closer = abs(headLevel(d) - level) + p.toneMargin <= abs(headLevel(pick) - level)
-        if closer && headDrift(d) <= p.flatMax { pick = d }
+        // (on a converted scan the tone is too loose a guide: only a ramp is passed over)
+        let ramp = !p.localUniform || headDrift(pick) > p.flatMax
+        if closer && ramp && headDrift(d) <= p.flatMax { pick = d }
     }
     // The border resumes after the sprocket holes: the picked run faded out
     // without an edge line, every line of the gap is the border tone with
@@ -632,8 +701,10 @@ func sprocketLine(_ s: SideView, _ i: Int, level: Float, p: Params) -> Bool {
 /// in, whose median (over the frame's own span, so holder or surround at
 /// the line's ends do not count) has gone 40% of the way from the border's
 /// tone to the picture's. A sharp edge stays put.
-func refineEdge(_ s: SideView, e: Int, level: Float, span: Range<Int>, p: Params) -> Int {
-    let out = max(0, e - p.refineOut), inn = min(s.n - 1, e + p.refineIn)
+func refineEdge(_ s: SideView, e: Int, level: Float, span: Range<Int>, floor: Int = 0, p: Params) -> Int {
+    // never outward past where the border run began (a short run right inside
+    // a bright holder would otherwise hand the edge to the holder)
+    let out = max(0, floor, e - p.refineOut), inn = min(s.n - 1, e + p.refineIn)
     guard inn - out >= 6, span.count >= 8 else { return e }
     func median(_ i: Int) -> Float {
         var vals = [Float](repeating: 0, count: span.count)
@@ -840,7 +911,8 @@ func peel(_ g: Gray, outer a: inout Analysis, params p: Params, dump: Bool) -> A
     return b
 }
 
-func analyzeGray(_ g: Gray, params: Params, dump: Bool = false) -> Analysis {
+func analyzeGray(_ g: Gray, params p0: Params, dump: Bool = false) -> Analysis {
+    var params = p0
     var a = Analysis()
     guard g.w >= 16, g.h >= 16 else {
         a.failed = "image too small"
@@ -873,6 +945,22 @@ func analyzeGray(_ g: Gray, params: Params, dump: Bool = false) -> Analysis {
     var runs = sides.map { uniformRuns($0, p: params) }
     var level = borderLevel(runs: runs, sides: sides, p: params)
 
+    // 1a. A scan converted to a positive before cropping (Negative Lab Pro)
+    //     shows the holder white around a near-black rebate whose tone varies
+    //     by forty levels around the frame and darkens slowly along each
+    //     line. Seen as a dark border with a bright holder run at the rim on
+    //     two sides or more: from here on the border tone may vary more and
+    //     a line's uniformity is judged in pieces.
+    if let lv = level, lv < params.convertedDarkMax {
+        let bright = (0..<4).filter { holderRun(runs[$0], 0, p: params) && runs[$0][0].level - lv > 3 * params.levelTol }
+        if bright.count >= 2 {
+            params.levelTol *= params.convertedTolScale
+            params.flatMax *= params.convertedTolScale
+            params.localUniform = true
+            dbg.converted = true
+        }
+    }
+
     // 1b. The holder at the ends of the lines. A side whose first run, from
     //     the rim, is not the border tone shows the holder (or light table)
     //     there, and every line of the two sides across it ends in that
@@ -899,7 +987,7 @@ func analyzeGray(_ g: Gray, params: Params, dump: Bool = false) -> Analysis {
             runs[k] = r
             lineStart[k] = a; lineEnd[k] = b
         }
-        if lineStart.contains(where: { $0 > 0 }) || lineEnd.contains(where: { $0 > 0 }) {
+        if dbg.converted || lineStart.contains(where: { $0 > 0 }) || lineEnd.contains(where: { $0 > 0 }) {
             level = borderLevel(runs: runs, sides: sides, p: params) ?? lv
         }
     }
@@ -967,7 +1055,7 @@ func analyzeGray(_ g: Gray, params: Params, dump: Bool = false) -> Analysis {
             let limit = min(s.n, Int(Double(s.n) * params.maxBorder))
             d.toneLines = (0..<limit).map { abs(lineProfile(s, $0, tol: params.borderTol).med - lv) <= params.levelTol }
             d.holeLines = (0..<limit).map { sprocketLine(s, $0, level: lv, p: params) }
-            let stats = (0..<limit).map { lineProfile(s, $0, tol: params.borderTol) }
+            let stats = (0..<limit).map { profile(s, $0, p: params) }
             d.cleanLines = stats.map { $0.uni >= params.uniformMin && abs($0.med - lv) <= params.levelTol }
             d.busyLines = stats.map { $0.uni < params.uniformMin }
         }
@@ -987,11 +1075,40 @@ func analyzeGray(_ g: Gray, params: Params, dump: Bool = false) -> Analysis {
             let lo = max(0, (a ?? lineStart[k]) - lineStart[k]) + 3
             let hi = s.len - max(0, (b ?? lineEnd[k]) - lineEnd[k]) - 3
             guard hi - lo >= 8 else { continue }
-            let e1 = refineEdge(s, e: e0, level: lv, span: lo..<hi, p: params)
+            let e1 = refineEdge(s, e: e0, level: lv, span: lo..<hi, floor: res[k].runStart, p: params)
             if e1 != e0 {
                 res[k].edge = e1
                 res[k].avail = Double(max(0, e1 - res[k].runStart)) / Double(s.n)
             }
+        }
+    }
+
+    // 2c. A frame edge lies just past its sprocket holes (nominally 0.7 mm,
+    //     here at most holeGapMaxMm): never inside the row, never far beyond
+    //     it. An edge found beyond that ran on into picture of the rebate's
+    //     tone (a dark sign against a converted scan's near-black rebate),
+    //     one inside the row stopped on a hole; either way it is no
+    //     measurement, and the frame's shape places it from the other sides.
+    //     Millimetres from the frame's usual extent across the film.
+    for k in 0..<4 where ["run", "subtle", "soft", "partial"].contains(res[k].method) {
+        guard let e = res[k].edge else { continue }
+        let hl = res[k].holeLines
+        let pxPerMm = Double(sides[k].n) * params.frameShare / 24
+        // the innermost line of a block of hole lines at least 1 mm tall, before the edge
+        var j = min(e, hl.count) - 1, inner: Int? = nil
+        while j >= 0 {
+            guard hl[j] else { j -= 1; continue }
+            var a = j
+            while a > 0 && hl[a - 1] { a -= 1 }
+            if Double(j - a + 1) >= params.holeRowMinMm * pxPerMm { inner = j; break }
+            j = a - 1
+        }
+        guard let hin = inner else { continue }
+        // (the edge inside the row: most of the next lines cross holes too)
+        let inRow = (e..<min(e + 4, hl.count)).filter { hl[$0] }.count >= 3
+        if inRow || e <= hin || Double(e - hin) > params.holeFrameGapMaxMm * pxPerMm {
+            res[k].method = "soft"
+            dbg.holeNote += "\(["L", "T", "R", "B"][k]) edge \(e) not just past its holes (\(hin)); "
         }
     }
 
@@ -1620,12 +1737,13 @@ for (i, name) in jpgs.enumerated() {
     print(line)
     if debug {
         let sa = dbg.sideAngles.map { $0.map { String(format: "%+.2f", $0) } ?? "-" }.joined(separator: " ")
-        var out = "    \(dbg.w)x\(dbg.h) thr=\(String(format: "%.1f", dbg.threshold)) border=\(Int(dbg.level))(\(dbg.dark ? "dark" : "bright")) aspect=\(String(format: "%.3f", dbg.aspect)) angle=\(String(format: "%+.2f", dbg.angle)) [\(sa)]\(dbg.angleNote.isEmpty ? "" : " " + dbg.angleNote) kept=\(String(format: "%.2f", dbg.kept))"
+        var out = "    \(dbg.w)x\(dbg.h) thr=\(String(format: "%.1f", dbg.threshold)) border=\(Int(dbg.level))(\(dbg.dark ? "dark" : "bright")\(dbg.converted ? ", converted" : "")) aspect=\(String(format: "%.3f", dbg.aspect)) angle=\(String(format: "%+.2f", dbg.angle)) [\(sa)]\(dbg.angleNote.isEmpty ? "" : " " + dbg.angleNote) kept=\(String(format: "%.2f", dbg.kept))"
         if !dbg.check.isEmpty { out += "  CHECK: " + dbg.check.joined(separator: ", ") }
         if !dbg.reason.isEmpty { out += "  [\(dbg.reason)]" }
         if dbg.peeled { out += "  peeled: film outline at \(dbg.outline.map(String.init).joined(separator: "/"))" }
         if !dbg.peelNote.isEmpty { out += "  PEEL: \(dbg.peelNote)" }
         if !dbg.peelTrace.isEmpty { out += "  (\(dbg.peelTrace))" }
+        if !dbg.holeNote.isEmpty { out += "  [holes: \(dbg.holeNote)]" }
         print(out)
         for (name, sd) in zip(["L", "T", "R", "B"], dbg.sides) {
             let e = sd.edge.map(String.init) ?? "none"
