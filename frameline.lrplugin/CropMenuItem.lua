@@ -166,16 +166,20 @@ LrTasks.startAsyncTask(function()
     -- Photos Frameline already cropped are left alone: a selection of only
     -- those opens the review window; a mixed selection crops just the rest.
     -- Detect again in the review window is the way to redo on purpose.
-    local todo, done = {}, {}
+    -- A photo Frameline tried and skipped (no frame found) does not make the
+    -- selection mixed: when the rest are all cropped, the review window opens
+    -- for those, and Detect again there retries the skipped ones too.
+    local todo, done, fresh = {}, {}, 0
     for _, photo in ipairs(photos) do
         if Frame.dataFor(photo) and Frame.hasCrop(photo) then
             done[#done + 1] = photo
         else
             todo[#todo + 1] = photo
+            if photo:getPropertyForPlugin(_PLUGIN, 'frameline_status') ~= 'skip' then fresh = fresh + 1 end
         end
     end
-    if #todo == 0 then
-        local verdict = Review.show(catalog, photos, prefs)
+    if #todo == 0 or (fresh == 0 and #done > 0) then
+        local verdict = Review.show(catalog, done, prefs)
         if verdict ~= 'redetect' then return end
         todo, done = photos, {}
     end
@@ -386,6 +390,7 @@ LrTasks.startAsyncTask(function()
                 end
             else
                 skipped[#skipped + 1] = photo
+                photo:setPropertyForPlugin(_PLUGIN, 'frameline_status', 'skip')
             end
         end
         -- the collections always reflect each photo's latest run
