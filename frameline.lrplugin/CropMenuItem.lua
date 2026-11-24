@@ -357,6 +357,7 @@ LrTasks.startAsyncTask(function()
             if c and c.ok then
                 c.aspect = Prefs.aspectFor(prefs.format)
                 local dims, orient = Frame.dimensions(photo), Frame.orientation(photo)
+                c.orient = Frame.orientCode(orient)     -- the edges belong to this orientation
                 local border = prefs.border
                 local crop, note, info, kind
                 -- a scan that shows its sprocket holes gets them, whatever the crop edge

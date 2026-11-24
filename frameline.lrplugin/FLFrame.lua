@@ -38,7 +38,7 @@ M.SESSION_SHARE = 0.5
 -- edges as detected (displayed), dims the file's, orientation as displayed.
 function M.sprocketScan(edges, dims, orientation)
     if not edges then return false end
-    local e = M.toFileSpace(edges, orientation)
+    local e = M.toFileSpace(edges, M.orientOf(edges, orientation))
     local h = e.holes
     if h and (((h.t or 0) > 0 and (h.b or 0) > 0) or ((h.l or 0) > 0 and (h.r or 0) > 0)) then
         return true
@@ -91,6 +91,17 @@ local ORIENT = {
     CD = { l = 'r', t = 'b', r = 'l', b = 't' },
     DA = { l = 'b', t = 'l', r = 't', b = 'r' },
 }
+-- The edges are as detected on the photo as it was displayed then; that
+-- orientation is stored with them (edges.orient, a number), so rotating the
+-- photo afterwards does not hand each margin to the wrong side. Photos
+-- stored before this have none and are taken as displayed now.
+local ORIENT_CODE = { AB = 1, BC = 2, CD = 3, DA = 4 }
+local ORIENT_NAME = { 'AB', 'BC', 'CD', 'DA' }
+function M.orientCode(orientation) return ORIENT_CODE[orientation or 'AB'] or 1 end
+function M.orientOf(edges, orientation)
+    return (edges and edges.orient and ORIENT_NAME[edges.orient]) or orientation
+end
+
 function M.toFileSpace(edges, orientation)
     local m = ORIENT[orientation or 'AB'] or ORIENT.AB
     local a = edges.avail or {}
@@ -153,7 +164,7 @@ end
 -- the scan cuts a row, 'plain' when it shows no sprockets and keeps a thin
 -- border).
 function M.cropFor(edges, border, straighten, dims, aspect, orientation)
-    edges = M.toFileSpace(edges, orientation)
+    edges = M.toFileSpace(edges, M.orientOf(edges, orientation))
     local avail, film = edges.avail or {}, edges.film or {}
     local known = {}
     for _, v in pairs(avail) do
@@ -324,7 +335,7 @@ function M.cropFor(edges, border, straighten, dims, aspect, orientation)
     }, note, info, kind
 end
 
--- l,t,r,b,angle,availL..B,aspect,filmL..B,borders,holesL..B (older photos
+-- l,t,r,b,angle,availL..B,aspect,filmL..B,borders,holesL..B,orient (older photos
 -- stop early; without the holes they keep the older sprocket behaviour)
 function M.edgesToString(e)
     local a = e.avail or {}
@@ -333,9 +344,11 @@ function M.edgesToString(e)
         e.l, e.t, e.r, e.b, e.angle or 0, a.l or 0, a.t or 0, a.r or 0, a.b or 0, e.aspect or 0,
         f.l or 0, f.t or 0, f.r or 0, f.b or 0, e.borders or 0)
     local h = e.holes
-    if h then
+    if h or e.orient then
+        h = h or {}
         s = s .. string.format(',%.4f,%.4f,%.4f,%.4f', h.l or 0, h.t or 0, h.r or 0, h.b or 0)
     end
+    if e.orient then s = s .. string.format(',%d', e.orient) end
     return s
 end
 
@@ -349,7 +362,8 @@ function M.edgesFromString(s)
              aspect = parts[10] or 0,
              film = { l = parts[11] or 0, t = parts[12] or 0, r = parts[13] or 0, b = parts[14] or 0 },
              borders = parts[15] or 0,
-             holes = #parts >= 19 and { l = parts[16], t = parts[17], r = parts[18], b = parts[19] } or nil }
+             holes = #parts >= 19 and { l = parts[16], t = parts[17], r = parts[18], b = parts[19] } or nil,
+             orient = parts[20] }
 end
 
 -- What Frameline stored on a photo the last time it cropped it, or nil.
