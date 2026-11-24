@@ -325,6 +325,7 @@ LrTasks.startAsyncTask(function()
     end
 
     local cropped, flagged, skipped, clean, noRoom, fitted = 0, {}, {}, {}, {}, {}
+    local withSprockets = 0
     catalog:withWriteAccessDo('Frameline', function()
         local set = catalog:createCollectionSet(COLLECTION_SET, nil, true)
         local lookColl = catalog:createCollection(COLLECTION_LOOK, set, true)
@@ -335,9 +336,22 @@ LrTasks.startAsyncTask(function()
             local c = crops[i]
             if c and c.ok then
                 c.aspect = Prefs.aspectFor(prefs.format)
-                local crop, note, info = Frame.cropFor(c, prefs.border, prefs.straighten, Frame.dimensions(photo), c.aspect, Frame.orientation(photo))
+                local dims, orient = Frame.dimensions(photo), Frame.orientation(photo)
+                local border = prefs.border
+                local crop, note, info, kind
+                -- a scan that shows its sprocket holes gets them, whatever the crop edge
+                if prefs.sprockets and Prefs.bordersFor(border) == 0 and Frame.showsHoles(c) then
+                    local c2, n2, i2, k2 = Frame.cropFor(c, Prefs.SPROCKETS, prefs.straighten, dims, c.aspect, orient)
+                    if k2 == 'holes' or k2 == 'cut' then
+                        border, crop, note, info, kind = Prefs.SPROCKETS, c2, n2, i2, k2
+                    end
+                end
+                if not crop then
+                    crop, note, info, kind = Frame.cropFor(c, border, prefs.straighten, dims, c.aspect, orient)
+                end
+                if kind == 'holes' or kind == 'cut' then withSprockets = withSprockets + 1 end
                 photo:applyDevelopSettings(crop, 'Frameline')
-                Frame.store(photo, c, c.sides, c.check and 'check' or 'ok', prefs.border, prefs.straighten, note or info)
+                Frame.store(photo, c, c.sides, c.check and 'check' or 'ok', border, prefs.straighten, note or info)
                 cropped = cropped + 1
                 if note then
                     noRoom[#noRoom + 1] = photo
@@ -392,6 +406,9 @@ LrTasks.startAsyncTask(function()
     end
     if #skipped > 0 then
         summary = summary .. string.format(' · %d skipped', #skipped)
+    end
+    if withSprockets > 0 then
+        summary = summary .. string.format(' · %d with sprockets', withSprockets)
     end
     if #noRoom > 0 then
         summary = summary .. string.format(' · %d without room for sprockets', #noRoom)

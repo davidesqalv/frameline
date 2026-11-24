@@ -48,7 +48,7 @@ function M.show(catalog, photos, prefs)
         -- the line under the crop edge
         -- counts over the photos: noRoom (older photos only), cut, plain;
         -- last: the sentence of the last photo that had one
-        local SPROCKETS = 'Sprockets: the crop takes in the sprocket holes.'
+        local SPROCKETS = 'Sprockets: the crop takes in the film around the frame, holes and edge printing.'
         local function noteFor(val, k)
             if Prefs.bordersFor(val) == 0 then return '' end
             if #items == 1 then return k.last or SPROCKETS end

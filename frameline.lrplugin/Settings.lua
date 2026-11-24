@@ -29,13 +29,16 @@ LrFunctionContext.callWithContext('frameline settings', function(context)
                 f:static_text { title = 'Crop edge', width = share 'lbl' },
                 f:popup_menu { value = bind 'border', items = Prefs.items(Prefs.borderSteps), width_in_chars = 28 },
             },
+            f:row {
+                f:static_text { title = '', width = share 'lbl' },
+                f:checkbox { title = 'Show the sprocket holes when a scan has them', value = bind 'sprockets' },
+            },
             f:static_text {
-                title = 'Sprockets keeps the sprocket holes in wherever a scan shows them: each side ends just past its row of holes, '
-                    .. 'or where the film ends when the scan cuts the row. Scans without holes on both sides keep a thin border, '
-                    .. 'so it is safe to leave on for every roll.',
+                title = 'A scan that shows sprocket holes on both sides is cropped across the whole film: holes and edge printing in, '
+                    .. 'out to where the film or the scan ends. The crop edge is for every other scan.',
                 font = '<system/small>',
                 width = 420,
-                height_in_lines = 5,
+                height_in_lines = 3,
             },
             f:row {
                 f:static_text { title = '', width = share 'lbl' },

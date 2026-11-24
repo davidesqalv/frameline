@@ -42,18 +42,20 @@ Crop edge
   Thin border    0.5% of film border (the default)
   Wide border    1.2%
   Chonk border   2.5%
-  Sprockets      the frame plus the sprocket holes, wherever the scan
-                 shows them: each side ends just past its row of holes, or
-                 where the film ends if the scan cuts the row. Scans
-                 without holes keep a thin border.
+  Sprockets      the frame with the film around it: sprocket holes and
+                 edge printing, out to where the film or the scan ends.
+                 Scans that show their holes get this on their own
+                 (Settings: Show the sprocket holes when a scan has them);
+                 choosing it here gives the rest a thin border.
 
   Opposite sides get the same border, and a side never shows more border
   than the scan has there.
 
 Settings
 --------
-  File > Plug-in Extras > Frameline Settings...: crop edge, straighten
-  tilted frames, film format (35mm, half frame, 6x4.5, 6x6, 6x7, 6x9, or
+  File > Plug-in Extras > Frameline Settings...: crop edge, show the
+  sprocket holes when a scan has them (on), straighten tilted frames, film
+  format (35mm, half frame, 6x4.5, 6x6, 6x7, 6x9, or
   free), a colour label for photos worth a look, and the shortcut key.
 
 Limits

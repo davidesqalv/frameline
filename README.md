@@ -82,7 +82,7 @@ How much of the film border to keep around the picture:
 | **Thin border** (default) | A thin line of film border, 0.5% |
 | Wide border | 1.2% of border |
 | Chonk border | 2.5% of border |
-| Sprockets | The frame plus the sprocket holes, wherever the scan shows them: each side ends just past its row of holes, or where the film ends if the scan cuts the row. Scans without holes keep a thin border, so it can stay on for every roll. |
+| Sprockets | The frame with the film around it: sprocket holes and edge printing, out to where the film or the scan ends. Scans that show their holes get this on their own (Settings › Show the sprocket holes when a scan has them); choosing it here gives the rest a thin border. |
 
 Percentages are of the photo's width or height. Opposite sides get the same
 border, so the picture stays centred. A side never shows more
@@ -92,8 +92,9 @@ come out thinner than you asked for.
 ### Settings
 
 File › Plug-in Extras › **Frameline Settings…** has the defaults: crop
-edge, whether to straighten tilted frames, film format, an optional colour
-label for photos worth a look, and the shortcut key.
+edge, whether to show the sprocket holes when a scan has them (on), whether
+to straighten tilted frames, film format, an optional colour label for
+photos worth a look, and the shortcut key.
 
 The formats are 35mm, half frame, 6×4.5, 6×6, 6×7 and 6×9. The format
 tells Frameline the frame's shape, and the crop keeps that shape exactly.

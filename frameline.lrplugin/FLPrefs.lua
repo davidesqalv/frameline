@@ -5,18 +5,20 @@ local LrPrefs = import 'LrPrefs'
 
 local M = {}
 
-M.version = '0.3.25'   -- kept in step with Info.lua by bump.sh
+M.version = '0.3.26'   -- kept in step with Info.lua by bump.sh
 
 -- border: percent of the image around the picture; positive shows film
 -- border, negative cuts into the picture. Chosen by name (borderSteps),
 -- stored as the number so old values and fine-tuning still work. The last
 -- step, sprockets, is not a percentage: on scans that show sprocket holes
--- the sides along the holes end just past them, the other two get a thin
--- margin (filmMargin); scans without holes keep a thin border. 9:8 is the
--- fallback rectangle when holes cannot be seen (converted scans). Its
--- stored number is a marker.
+-- the sides along the holes go out to the film's end, holes and edge
+-- printing in, the other two get a thin margin (filmMargin); scans without
+-- holes keep a thin border. Its stored number is a marker (borders > 0).
+-- With the sprockets pref on, a scan that shows holes gets this step
+-- whatever the crop edge.
 M.defaults = {
     border = 0.5,
+    sprockets = true,    -- a scan that shows sprocket holes is cropped to them, whatever the crop edge
     format = '35mm',
     label = 'none',
     shortcut = '^f',
@@ -33,6 +35,7 @@ M.borderSteps = {
     { title = 'Sprockets',    value = 10, borders = 9 / 8 },
 }
 M.filmMargin = 0.5     -- border on the frame's long sides with sprockets (percent), a hairline of rebate
+M.SPROCKETS = 10       -- the Sprockets step's value
 
 M.formats = {
     { title = '35mm (3:2)',                      value = '35mm', aspect = 1.5 },

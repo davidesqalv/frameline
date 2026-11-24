@@ -97,7 +97,7 @@ struct Params {
     var holeGapMaxMm = 2.5          // a frame's sprocket row begins within this many mm of its edge (nominally ~0.7)
     var holeRowMinMm = 1.0          // ...and shows at least this much of the holes' 2.8 mm height
     var holeBridge = 3              // lines inside a row that may fail the hole test (rounded hole ends, dust)
-    var holeMarginMm = 0.3          // reported reach includes half the clean rebate beyond the holes, at most this (mm)
+    var printGapMm = 2.0            // busy off-tone lines (edge printing, frame numbers) count as film over at most this (mm)
     var peelInset = 3               // lines skipped inside the film outline before the second pass
     var peelBand = 4                // lines sampled just inside the outline to see the rebate ring
     var peelBandUni: Float = 0.6    // ...which may carry edge printing and frame numbers, so this uniform is enough
@@ -124,6 +124,7 @@ struct SideDebug {
     var toneLines: [Bool] = []      // per line from the rim (to the search limit): mostly border tone, i.e. film
     var holeLines: [Bool] = []      // per line from the rim (to the search limit): crosses a row of sprocket holes
     var cleanLines: [Bool] = []     // per line from the rim (to the search limit): uniform border tone, clean rebate
+    var busyLines: [Bool] = []      // per line from the rim (to the search limit): not uniform (printing, holes, an edge)
     var holes: Double = 0           // how far past the edge the sprocket holes reach, plus a little clean rebate beyond, fraction; 0 = none
 }
 
@@ -566,11 +567,31 @@ func chooseRun(_ runs: [Run], s: SideView, p: Params, level: Float) -> Run? {
     return pick
 }
 
+/// Where the film ends walking out from line `from` toward the rim (the line
+/// index, 0 = it runs off the scan). Border-tone lines are film; a stretch of
+/// busy lines of another tone (edge printing, frame numbers, the ragged film
+/// edge) is film too when the border tone resumes beyond it or it reaches the
+/// rim, within maxGap lines. A uniform line of another tone ends the film.
+func filmWalk(from e: Int, tone: [Bool], busy: [Bool], maxGap: Int) -> Int {
+    var k = min(e, tone.count)
+    while k > 0 {
+        if tone[k - 1] { k -= 1; continue }
+        var j = k - 1, gap = 0
+        while j >= 0, !tone[j], busy[j], gap < maxGap { j -= 1; gap += 1 }
+        if j < 0 { return 0 }
+        if tone[j] { k = j + 1; continue }
+        break
+    }
+    return k
+}
+
 /// One line through a row of sprocket holes: off-tone stretches (the holes)
 /// at least sprocketMinHoles of them, about the same length and evenly
 /// spaced. Stretches that touch either end of the line (the holder, a hole
-/// it cuts) are left out, as are specks under three pixels (grain) and,
-/// against the median hole, pieces under half its length (dust).
+/// it cuts) are left out, as are specks under three pixels (grain). Only
+/// stretches within a third of the typical length count as holes, so dust,
+/// or the rebate darkening in the holder's shadow, does not; a step between
+/// holes may be one pitch or two (a hole lost to that shadow or a scratch).
 func sprocketLine(_ s: SideView, _ i: Int, level: Float, p: Params) -> Bool {
     var segs: [(start: Int, len: Int)] = []
     var j = 0
@@ -581,14 +602,18 @@ func sprocketLine(_ s: SideView, _ i: Int, level: Float, p: Params) -> Bool {
         if a > 0 && j < s.len && j - a >= 3 { segs.append((a, j - a)) }
     }
     guard segs.count >= p.sprocketMinHoles else { return false }
-    let typical = segs.map { $0.len }.sorted()[segs.count / 2]
-    let holes = segs.filter { 2 * $0.len >= typical }
-    guard holes.count >= p.sprocketMinHoles,
-          holes.allSatisfy({ Double($0.len) <= 1.6 * Double(typical) }) else { return false }
+    let typical = Double(segs.map { $0.len }.sorted()[segs.count / 2])
+    let holes = segs.filter { Double($0.len) >= 0.75 * typical && Double($0.len) <= 1.33 * typical }
+    guard holes.count >= p.sprocketMinHoles else { return false }
     let steps = zip(holes.dropFirst(), holes).map { Double($0.start - $1.start) }
     let step = steps.sorted()[steps.count / 2]
     guard step >= 6 else { return false }
-    return steps.allSatisfy { abs($0 - step) <= p.sprocketPitchTol * step }
+    var single = 0
+    for d in steps {
+        if abs(d - step) <= p.sprocketPitchTol * step { single += 1 }
+        else if abs(d - 2 * step) > p.sprocketPitchTol * step { return false }
+    }
+    return single >= p.sprocketMinHoles - 1
 }
 
 /// Where within its transition an edge sits. A sharp edge is one line; a
@@ -798,6 +823,7 @@ func peel(_ g: Gray, outer a: inout Analysis, params p: Params, dump: Bool) -> A
         b.sides[k].toneLines = [Bool](repeating: false, count: offset[k]) + b.sides[k].toneLines
         b.sides[k].holeLines = [Bool](repeating: false, count: offset[k]) + b.sides[k].holeLines
         b.sides[k].cleanLines = [Bool](repeating: false, count: offset[k]) + b.sides[k].cleanLines
+        b.sides[k].busyLines = [Bool](repeating: false, count: offset[k]) + b.sides[k].busyLines
     }
     b.w = w; b.h = h
     b.dbg.w = w; b.dbg.h = h
@@ -902,10 +928,9 @@ func analyzeGray(_ g: Gray, params: Params, dump: Bool = false) -> Analysis {
             let limit = min(s.n, Int(Double(s.n) * params.maxBorder))
             d.toneLines = (0..<limit).map { abs(lineProfile(s, $0, tol: params.borderTol).med - lv) <= params.levelTol }
             d.holeLines = (0..<limit).map { sprocketLine(s, $0, level: lv, p: params) }
-            d.cleanLines = (0..<limit).map {
-                let (med, uni) = lineProfile(s, $0, tol: params.borderTol)
-                return uni >= params.uniformMin && abs(med - lv) <= params.levelTol
-            }
+            let stats = (0..<limit).map { lineProfile(s, $0, tol: params.borderTol) }
+            d.cleanLines = stats.map { $0.uni >= params.uniformMin && abs($0.med - lv) <= params.levelTol }
+            d.busyLines = stats.map { $0.uni < params.uniformMin }
         }
         res.append(d)
     }
@@ -1188,18 +1213,29 @@ func finish(_ a: Analysis, params: Params, prior: [Double?]) -> (Detection?, Deb
             }
         }
     }
-    // how far the film goes on outside each edge, measured from the edge as
-    // finally placed. A side without a border run has its film measured the
-    // same way from the placed edge: outward while the lines stay mostly
-    // border tone; an edge with no film next to it has none known.
+    // How far the film goes on outside each edge, measured from the edge as
+    // finally placed (inside a film outline, to the outline: see peel).
+    // Outward from the edge, a line of the border tone is film; so is a
+    // stretch of busy off-tone lines (edge printing, frame numbers, the
+    // ragged film edge) up to printGapMm long, when the border tone resumes
+    // beyond it or it runs to the scan's edge. A uniform line of another
+    // tone (holder, light table) ends the film. An edge with no film next to
+    // it has none known.
+    let edgeOf = { (k: Int) -> Int in res[k].edge ?? 0 }
     for i in 0..<4 {
-        let placed = ["run", "soft", "subtle", "agreed", "partial", "inferred", "squeezed"].contains(res[i].method)
-        if let fe = res[i].filmEnd, let ed = res[i].edge, placed {
-            res[i].film = max(0, Double(ed - fe) / Double(i == 0 || i == 2 ? w : h))
-        } else if let ed = res[i].edge, placed || res[i].method == "batch", ed > 0, ed <= res[i].toneLines.count {
-            var k = ed
-            while k > 0 && res[i].toneLines[k - 1] { k -= 1 }
-            res[i].film = Double(ed - k) / Double(i == 0 || i == 2 ? w : h)
+        let placed = ["run", "soft", "subtle", "agreed", "partial", "inferred", "squeezed", "batch"].contains(res[i].method)
+        let n = i == 0 || i == 2 ? w : h
+        guard let ed = res[i].edge, placed, ed > 0 else { res[i].film = 0; continue }
+        if dbg.peeled, let fe = res[i].filmEnd {
+            res[i].film = max(0, Double(ed - fe) / Double(n))
+        } else if ed <= res[i].toneLines.count {
+            let across = i == 0 || i == 2 ? w - edgeOf(0) - edgeOf(2) : h - edgeOf(1) - edgeOf(3)
+            let maxGap = max(2, Int(params.printGapMm * Double(across) / 24))
+            let fe = filmWalk(from: ed, tone: res[i].toneLines, busy: res[i].busyLines, maxGap: maxGap)
+            res[i].filmEnd = fe
+            res[i].film = Double(ed - fe) / Double(n)
+        } else if let fe = res[i].filmEnd {
+            res[i].film = max(0, Double(ed - fe) / Double(n))
         } else {
             res[i].film = 0
         }
@@ -1208,13 +1244,9 @@ func finish(_ a: Analysis, params: Params, prior: [Double?]) -> (Detection?, Deb
     // finally placed, past the rebate (the row begins within holeGapMaxMm),
     // through the lines that cross a row of holes (a few failing lines
     // bridged), to the row's outer end, then past the holes' rounded ends to
-    // the first clean rebate line. The reach reported adds half of that
-    // clean rebate, at most holeMarginMm, so a crop there shows whole holes
-    // and stops short of edge printing that follows. Millimetres come from
-    // the frame's extent across the film, which is 24 mm on every 135
-    // format. A row the scan cuts runs to the rim; the plug-in then stops at
-    // the film's end.
-    let edgeOf = { (k: Int) -> Int in res[k].edge ?? 0 }
+    // the first clean rebate line. Millimetres come from the frame's extent
+    // across the film, which is 24 mm on every 135 format. A row the scan
+    // cuts runs to the rim.
     for i in 0..<4 {
         guard let e = res[i].edge, e > 0, e <= res[i].holeLines.count else { continue }
         let n = i == 0 || i == 2 ? w : h
@@ -1222,16 +1254,22 @@ func finish(_ a: Analysis, params: Params, prior: [Double?]) -> (Detection?, Deb
         let pxPerMm = Double(across) / 24
         guard pxPerMm > 0 else { continue }
         let hl = res[i].holeLines
+        // the first block of hole lines tall enough to be a row, beginning
+        // within the gap limit (a stray line by the frame edge is passed over)
         var k = e - 1
-        while k >= 0, !hl[k], Double(e - 1 - k) <= params.holeGapMaxMm * pxPerMm { k -= 1 }
-        guard k >= 0, hl[k] else { continue }
-        let inner = k
-        var outer = k, miss = 0
-        while k >= 0 {
-            if hl[k] { outer = k; miss = 0 } else { miss += 1; if miss > params.holeBridge { break } }
-            k -= 1
+        var row: (inner: Int, outer: Int)? = nil
+        while k >= 0, Double(e - 1 - k) <= params.holeGapMaxMm * pxPerMm {
+            guard hl[k] else { k -= 1; continue }
+            let inner = k
+            var outer = k, miss = 0
+            while k >= 0 {
+                if hl[k] { outer = k; miss = 0 } else { miss += 1; if miss > params.holeBridge { break } }
+                k -= 1
+            }
+            if Double(inner - outer + 1) >= params.holeRowMinMm * pxPerMm { row = (inner, outer); break }
+            k = outer - 1
         }
-        guard Double(inner - outer + 1) >= params.holeRowMinMm * pxPerMm else { continue }
+        guard let (_, outer) = row else { continue }
         let clean = res[i].cleanLines
         var end = outer
         k = outer - 1
@@ -1240,13 +1278,7 @@ func finish(_ a: Analysis, params: Params, prior: [Double?]) -> (Detection?, Deb
         if k < 0 {
             end = 0                         // the row runs to the rim: cut by the scan
         } else if clean[k] {
-            // half the clean strip, so the crop sits midway between the holes
-            // and whatever follows (edge printing whose thin tops still pass
-            // as clean, the film's edge), and never more than the margin
-            let cap = params.holeMarginMm * pxPerMm
-            var c = 0
-            while k - c >= 0, clean[k - c], Double(c) < 2 * cap { c += 1 }
-            end = k + 1 - min(c / 2, Int(cap))
+            end = k + 1                     // past the holes' rounded ends
         }
         res[i].holes = Double(e - end) / Double(n)
     }
@@ -1513,6 +1545,18 @@ if let pv = previewURL {
 
 func f5(_ v: Double) -> String { String(format: "%.5f", v) }
 
+/// "3-40 52-60": the runs of true lines, for the debug output
+func lineRanges(_ b: [Bool]) -> String {
+    var out: [String] = [], i = 0
+    while i < b.count {
+        guard b[i] else { i += 1; continue }
+        let a = i
+        while i < b.count && b[i] { i += 1 }
+        out.append(a == i - 1 ? "\(a)" : "\(a)-\(i - 1)")
+    }
+    return out.joined(separator: " ")
+}
+
 var lines: [String] = []
 for (i, name) in jpgs.enumerated() {
     let index = (name as NSString).deletingPathExtension
@@ -1544,7 +1588,7 @@ for (i, name) in jpgs.enumerated() {
         print(out)
         for (name, sd) in zip(["L", "T", "R", "B"], dbg.sides) {
             let e = sd.edge.map(String.init) ?? "none"
-            print("      \(name)=\(e) \(sd.method) snap \(String(format: "%.2f", sd.snap)) avail \(String(format: "%.3f", sd.avail)) film \(String(format: "%.3f", sd.film)) holes \(String(format: "%.3f", sd.holes))  runs: \(sd.runs)")
+            print("      \(name)=\(e) \(sd.method) snap \(String(format: "%.2f", sd.snap)) avail \(String(format: "%.3f", sd.avail)) film \(String(format: "%.3f", sd.film)) holes \(String(format: "%.3f", sd.holes)) [\(lineRanges(sd.holeLines))]  runs: \(sd.runs)")
         }
         if params.borders > 0, let d = det {
             let fb = bordersRect(d, film: dbg.sides.map { $0.film }, ratio: params.borders, w: dbg.w, h: dbg.h)
