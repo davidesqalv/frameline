@@ -215,7 +215,23 @@ are read against a reference of (W cos a − H |sin a|) by (H cos a + W |sin a|)
 for a landscape image, not against W by H. `FLFrame.rotatedReference`
 encodes it; without it an exact 3:2 rectangle comes out at 1.46.
 
+**Sub-pixel slope.** The edge-pixel fit above decides whether a side has an
+edge line and how good it is, but its slope comes from whole pixels of a
+thresholded map and reads small tilts low (0.15 for a frame tilted 0.3
+degrees: a nine-pixel wedge of border at the corners of an edge-to-edge
+crop). The slope is therefore measured again where it counts: at up to 32
+places along the side the profile across the edge is followed from border
+to picture and the half-way crossing interpolated, and the slope is the
+median of the slopes between pairs of those points. It replaces the fit's
+slope when the two agree within half a degree. Checked against an
+independent measurement on full-size previews, and on the synthetic frames
+tilted 0.8 degrees (0.79 and 0.78).
+
 ## Crop edge
+
+Edge to edge sits 0.2% inside the detected edges, so that no border shows:
+the edges lie partway through the fade from border to picture, and a
+frame's opposite sides are rarely parallel to better than 0.1 degree.
 
 The crop edge (Tighter ... Chonk border) is a percentage of the image shown
 around the frame, or cut into it. A side shows at most the clean border it

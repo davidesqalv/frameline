@@ -89,6 +89,10 @@ struct Params {
     var angleAgree = 0.35           // sides within this many degrees of each other agree on the tilt
     var angleAloneQuality = 0.8     // a single side may set the tilt when its edge line has at least this many inlier px per px of length
     var angleLongSideWeight = 2.0   // the frame's long sides count this much more in the tilt vote
+    var crossReach = 6              // lines either side of the edge in the sub-pixel slope's profile
+    var crossBand = 6               // ...averaged over this many pixels either side along the edge
+    var crossMinContrast = 12.0     // ...which needs this much contrast between border and picture
+    var crossMaxShift = 0.5         // ...and may differ from the edge-pixel fit by at most this (degrees)
     var angleMinBorder = 0.010      // a side with less border than this (fraction) fits the tilt badly
     var sprocketUniMax: Float = 0.7 // a line through the sprocket holes is at most this uniform
     var sprocketMinHoles = 4        // a line through the sprocket row crosses at least this many whole holes
@@ -288,6 +292,52 @@ func makeSides(_ g: Gray, edges: [Bool], colR: [Float], rowR: [Float]) -> [SideV
     let bottom = SideView(n: h, len: w, raw: Array(rowR.reversed()), lum: { i, j in px[(h - 1 - i) * w + j] },
                           edge: { i, j in edges[(h - 1 - i) * w + j] })
     return [left, top, right, bottom]
+}
+
+/// The slope of a frame edge to a fraction of a pixel: at up to 32 places
+/// along the side (inside `span`, clear of the corners) the profile across
+/// the edge, averaged over a short band, is followed from border to picture
+/// and the half-way crossing interpolated; the slope is the median of the
+/// slopes between pairs of those points (Theil-Sen), so picture detail at a
+/// few places does not pull it. The edge-pixel fit (sideSlope) works on
+/// whole pixels of a thresholded map and reads small tilts low: 0.15 for a
+/// frame tilted 0.3 degrees, a nine-pixel wedge at the corners of an
+/// edge-to-edge crop. nil when the edge shows too little contrast.
+func crossingSlope(_ s: SideView, e: Int, span: Range<Int>, p: Params) -> Double? {
+    let reach = p.crossReach, band = p.crossBand
+    guard e - reach >= 0, e + reach < s.n, span.count >= 16 * band else { return nil }
+    let places = min(32, span.count / (2 * band + 1))
+    var pts: [(Double, Double)] = []
+    for q in 0..<places {
+        let c = span.lowerBound + span.count * (2 * q + 1) / (2 * places)
+        guard c - band >= 0, c + band < s.len else { continue }
+        var prof = [Double](repeating: 0, count: 2 * reach + 1)
+        for d in -reach...reach {
+            var v: Float = 0
+            for j in (c - band)...(c + band) { v += s.lum(e + d, j) }
+            prof[d + reach] = Double(v) / Double(2 * band + 1)
+        }
+        let outer = prof[0..<3].reduce(0, +) / 3, inner = prof[(2 * reach - 2)...].reduce(0, +) / 3
+        guard abs(inner - outer) >= p.crossMinContrast else { continue }
+        let mid = (inner + outer) / 2
+        // the crossing nearest the detected edge
+        var best: Double? = nil
+        for i in 0..<(2 * reach) where (prof[i] - mid) * (prof[i + 1] - mid) <= 0 && prof[i] != prof[i + 1] {
+            let x = Double(i) + (mid - prof[i]) / (prof[i + 1] - prof[i]) - Double(reach)
+            if best == nil || abs(x) < abs(best!) { best = x }
+        }
+        if let x = best { pts.append((Double(c), x)) }
+    }
+    guard pts.count >= 8, pts.last!.0 - pts.first!.0 >= 0.4 * Double(span.count) else { return nil }
+    var slopes: [Double] = []
+    for a in 0..<pts.count {
+        for b in (a + 1)..<pts.count where pts[b].0 - pts[a].0 >= Double(span.count) / 4 {
+            slopes.append((pts[b].1 - pts[a].1) / (pts[b].0 - pts[a].0))
+        }
+    }
+    guard slopes.count >= 6 else { return nil }
+    slopes.sort()
+    return slopes[slopes.count / 2]
 }
 
 /// Tilt of one side's frame edge: the straight line through the most edge
@@ -1133,7 +1183,16 @@ func analyzeGray(_ g: Gray, params p0: Params, dump: Bool = false) -> Analysis {
     var sideQuality: [Double] = [0, 0, 0, 0]
     for (k, s) in sides.enumerated() where ["run", "soft", "partial", "subtle"].contains(res[k].method) {
         if let e = res[k].edge, let fit = sideSlope(s, e: e, availLines: Int(res[k].avail * Double(s.n)), p: params) {
-            sideAngles[k] = signs[k] * atan(fit.slope) * 180 / .pi
+            // the edge-pixel fit says the side has a line and how good it is;
+            // its slope is then measured to a fraction of a pixel, between
+            // the neighbouring edges (in the side's own line)
+            let (a, b) = (k == 0 || k == 2) ? (res[1].edge, res[3].edge) : (res[0].edge, res[2].edge)
+            let lo = max(0, (a ?? lineStart[k]) - lineStart[k]) + params.crossBand + 4
+            let hi = s.len - max(0, (b ?? lineEnd[k]) - lineEnd[k]) - params.crossBand - 4
+            var slope = fit.slope
+            if hi > lo, let fine = crossingSlope(s, e: e, span: lo..<hi, p: params),
+               abs(atan(fine) - atan(fit.slope)) * 180 / .pi <= params.crossMaxShift { slope = fine }
+            sideAngles[k] = signs[k] * atan(slope) * 180 / .pi
             // The film is held by its long edges, and a slightly cupped strip
             // skews the short edges; the long sides carry the tilt.
             let isLong = (w >= h) ? (k == 1 || k == 3) : (k == 0 || k == 2)

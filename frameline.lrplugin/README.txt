@@ -38,7 +38,7 @@ Crop edge
 ---------
   Tighter        0.6% into the picture
   Tight          0.3% into the picture
-  Edge to edge   exactly on the frame edge
+  Edge to edge   no border showing (0.2% inside the frame edge)
   Thin border    0.5% of film border (the default)
   Wide border    1.2%
   Chonk border   2.5%

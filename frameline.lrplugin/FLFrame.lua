@@ -15,6 +15,11 @@ M.ANGLE_SIGN = 1
 
 -- Crop edge: when the clean border on an axis is less than this (percent of
 -- the image), the short side may take up to HOLDER_TOLERANCE beyond it.
+-- Edge to edge means no border showing: the crop sits this far (percent)
+-- inside the detected edges, which lie partway through the fade from border
+-- to picture, and the frame's sides are never quite parallel (0.1 degree
+-- between opposite sides is usual, two pixels at each end).
+M.EDGE_INSET = 0.2
 M.MIN_VISIBLE_BORDER = 0.4
 M.HOLDER_TOLERANCE = 0.4
 -- Sprockets: each sprocket side shows at least this much film past the
@@ -236,7 +241,9 @@ function M.cropFor(edges, border, straighten, dims, aspect, orientation)
 
     -- sprockets: a hairline on the long sides, the short sides grow below
     local B = Prefs.bordersFor(border)
-    local l, t, r, b = rectFor(B > 0 and Prefs.filmMargin or (border or 0))
+    local plain = border or 0
+    if plain == 0 then plain = -M.EDGE_INSET end
+    local l, t, r, b = rectFor(B > 0 and Prefs.filmMargin or plain)
     local cx, cy = (l + 1 - r) / 2, (t + 1 - b) / 2
     -- The detected edges sit near the middle of a tilted edge's spread, so
     -- the measured size is already the frame's size to within half a
